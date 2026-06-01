@@ -1,0 +1,294 @@
+# Maritime Situational Awareness (MSA) vocabulary.
+#
+# Authored from examples/maritime/ — the authoritative, executable source — and
+# cross-checked against its rules.prolog, staticDataPredicates.prolog,
+# compare.prolog, patternsParameters/thresholds.prolog, and the value tables
+# (areaTypes/portStatuses/movingStatus). This is the closed set of symbols the
+# generator may emit; nothing here is invented (CLAUDE.md §2, §5 invariant 3).
+#
+# Arity is NOT listed: the loader derives it from arg_names. Atoms `true`/`false`
+# are quoted to keep them Prolog strings (the loader also coerces defensively).
+
+name: msa
+
+# ---------------------------------------------------------------------------
+# Input events — instantaneous simple events from the AIS stream
+# (dataset/csv/brest_critical.csv, pipe-delimited; see docs/ENGINE_NOTES.md §5.4).
+# ---------------------------------------------------------------------------
+events:
+  - name: entersArea
+    arg_names: [vessel, area]
+    meaning: Vessel enters a geographic area (resolved to an areaType via areaType/2).
+  - name: leavesArea
+    arg_names: [vessel, area]
+    meaning: Vessel leaves a geographic area.
+  - name: velocity
+    arg_names: [vessel, speed, courseOverGround, trueHeading]
+    meaning: AIS kinematic report; speed in knots, angles in degrees, trueHeading 511.0 means unavailable.
+  - name: coord
+    arg_names: [vessel, longitude, latitude]
+    meaning: Vessel position report (longitude/latitude).
+  - name: gap_start
+    arg_names: [vessel]
+    meaning: AIS transmission gap begins (vessel stops emitting position messages).
+  - name: gap_end
+    arg_names: [vessel]
+    meaning: AIS transmission gap ends.
+  - name: stop_start
+    arg_names: [vessel]
+    meaning: Vessel stops (speed drops to ~0).
+  - name: stop_end
+    arg_names: [vessel]
+    meaning: Vessel resumes motion after a stop.
+  - name: slow_motion_start
+    arg_names: [vessel]
+    meaning: Vessel enters sustained low-speed motion.
+  - name: slow_motion_end
+    arg_names: [vessel]
+    meaning: Vessel leaves low-speed motion.
+  - name: change_in_speed_start
+    arg_names: [vessel]
+    meaning: Vessel begins changing speed.
+  - name: change_in_speed_end
+    arg_names: [vessel]
+    meaning: Vessel stops changing speed.
+  - name: change_in_heading
+    arg_names: [vessel]
+    meaning: Vessel changes heading (instantaneous turn event).
+
+# ---------------------------------------------------------------------------
+# Input fluents — statically determined inputs arriving pre-computed as intervals
+# (collectIntervals; rules.prolog line 325).
+# ---------------------------------------------------------------------------
+input_fluents:
+  - name: proximity
+    arg_names: [vessel1, vessel2]
+    values: ["true"]
+    fluent_type: SDF
+    meaning: Two vessels are within a threshold distance; supplied as ready-made intervals, not derived.
+
+# ---------------------------------------------------------------------------
+# Output (composite) fluents — what the engine recognises. fluent_type is the
+# EDF/SDF regime tag (the central thesis split). EDF = initiatedAt/terminatedAt
+# over events; SDF = a single holdsFor rule composing other fluents via interval
+# algebra (union_all / intersect_all / relative_complement_all / intDurGreater).
+# ---------------------------------------------------------------------------
+output_fluents:
+  - name: withinArea
+    arg_names: [vessel, areaType]
+    values: ["true"]
+    fluent_type: EDF
+    meaning: Vessel is currently inside an area of the given areaType. Terminated by leavesArea or gap_start.
+  - name: gap
+    arg_names: [vessel]
+    values: [nearPorts, farFromPorts]
+    fluent_type: EDF
+    meaning: Vessel is in an AIS communication gap, valued by whether it was near ports when the gap began.
+  - name: stopped
+    arg_names: [vessel]
+    values: [nearPorts, farFromPorts]
+    fluent_type: EDF
+    meaning: Vessel is stopped, valued by proximity to ports at stop_start.
+  - name: lowSpeed
+    arg_names: [vessel]
+    values: ["true"]
+    fluent_type: EDF
+    meaning: Vessel is in low-speed motion (between slow_motion_start and slow_motion_end).
+  - name: changingSpeed
+    arg_names: [vessel]
+    values: ["true"]
+    fluent_type: EDF
+    meaning: Vessel is changing speed (between change_in_speed_start and change_in_speed_end).
+  - name: highSpeedNearCoast
+    arg_names: [vessel]
+    values: ["true"]
+    fluent_type: EDF
+    meaning: Vessel speed exceeds thresholds(hcNearCoastMax) while withinArea nearCoast. Note inRange/3 is exclusive.
+  - name: movingSpeed
+    arg_names: [vessel]
+    values: [below, normal, above]
+    fluent_type: EDF
+    meaning: Vessel speed relative to its vesselType's typeSpeed band (below/within/above the [Min,Max] range).
+  - name: underWay
+    arg_names: [vessel]
+    values: ["true"]
+    fluent_type: SDF
+    meaning: Vessel is moving — union of movingSpeed below, normal, and above.
+  - name: drifting
+    arg_names: [vessel]
+    values: ["true"]
+    fluent_type: EDF
+    meaning: An underWay vessel whose course-over-ground differs from heading beyond thresholds(adriftAngThr).
+  - name: anchoredOrMoored
+    arg_names: [vessel]
+    values: ["true"]
+    fluent_type: SDF
+    meaning: Vessel stopped at anchorage or near ports for longer than thresholds(aOrMTime).
+  - name: tuggingSpeed
+    arg_names: [vessel]
+    values: ["true"]
+    fluent_type: EDF
+    meaning: Vessel speed within the tugging band [tuggingMin, tuggingMax].
+  - name: tugging
+    arg_names: [vessel1, vessel2]
+    values: ["true"]
+    fluent_type: SDF
+    meaning: A tug (oneIsTug, not a pilot, not two tugs) and another vessel in sustained proximity at tuggingSpeed.
+  - name: rendezVous
+    arg_names: [vessel1, vessel2]
+    values: ["true"]
+    fluent_type: SDF
+    meaning: Two non-tug/non-pilot vessels stopped or low-speed in proximity, away from ports and coast, beyond rendezvousTime.
+  - name: trawlSpeed
+    arg_names: [vessel]
+    values: ["true"]
+    fluent_type: EDF
+    meaning: Vessel speed within the trawling band [trawlspeedMin, trawlspeedMax] while withinArea fishing.
+  - name: trawlingMovement
+    arg_names: [vessel]
+    values: ["true"]
+    fluent_type: EDF
+    meaning: Heading changes characteristic of trawling while withinArea fishing (maximal interval via fi/p over trawlingCrs).
+  - name: trawling
+    arg_names: [vessel]
+    values: ["true"]
+    fluent_type: SDF
+    meaning: Intersection of trawlSpeed and trawlingMovement lasting longer than thresholds(trawlingTime).
+  - name: sarSpeed
+    arg_names: [vessel]
+    values: ["true"]
+    fluent_type: EDF
+    meaning: Vessel speed above thresholds(sarMinSpeed) (search-and-rescue speed profile).
+  - name: sarMovement
+    arg_names: [vessel]
+    values: ["true"]
+    fluent_type: EDF
+    meaning: Heading/speed changes characteristic of search-and-rescue (maximal interval via fi/p over 1800s).
+  - name: inSAR
+    arg_names: [vessel]
+    values: ["true"]
+    fluent_type: SDF
+    meaning: Intersection of sarSpeed and sarMovement lasting longer than 3600s.
+  - name: loitering
+    arg_names: [vessel]
+    values: ["true"]
+    fluent_type: SDF
+    meaning: Low-speed or stopped far from ports, excluding nearCoast and anchoredOrMoored, beyond thresholds(loiteringTime).
+  - name: pilotOps
+    arg_names: [vessel1, vessel2]
+    values: ["true"]
+    fluent_type: SDF
+    meaning: A pilot vessel (oneIsPilot) and another vessel in proximity at low-speed/stopped, excluding nearCoast.
+
+# ---------------------------------------------------------------------------
+# Background knowledge — facts and helper predicates the rules consult.
+# ---------------------------------------------------------------------------
+background_knowledge:
+  - name: areaType
+    arg_names: [area, type]
+    meaning: Maps a concrete area id to its area type (defined as bigAreaType/2).
+  - name: vesselType
+    arg_names: [vessel, type]
+    meaning: A vessel's type, from vesselStaticInfo/3.
+  - name: typeSpeed
+    arg_names: [type, min, max, avg]
+    meaning: Per-vessel-type expected speed band in knots (Min, Max, Avg).
+  - name: oneIsTug
+    arg_names: [vessel1, vessel2]
+    meaning: True if either vessel is of vesselType tug.
+  - name: oneIsPilot
+    arg_names: [vessel1, vessel2]
+    meaning: True if either vessel is of vesselType pilotvessel.
+  - name: twoAreTugs
+    arg_names: [vessel1, vessel2]
+    meaning: True if both vessels are of vesselType tug.
+  - name: draft
+    arg_names: [vessel, draft]
+    meaning: Vessel draft, from vesselStaticInfo/3.
+  - name: draught
+    arg_names: [vessel, draught]
+    meaning: Vessel draught (alias of draft).
+  - name: inRange
+    arg_names: [value, min, max]
+    meaning: True when Min < Value < Max.
+    note: "EXCLUSIVE comparator (Var > Min, Var < Max) — disagrees with an inclusive limit at the endpoints; the source of the highSpeedNearCoast boundary-comparator drift (CLAUDE.md §3, compare.prolog:33-35)."
+  - name: absoluteAngleDiff
+    arg_names: [angle1, angle2, diff]
+    meaning: Smallest absolute difference between two angles in degrees.
+  - name: intDurGreater
+    arg_names: [intervals, threshold, result]
+    meaning: Keep the maximal intervals whose duration exceeds Threshold (the minimum-duration filter for SDFs).
+  - name: intDurLess
+    arg_names: [intervals, threshold, result]
+    meaning: Keep the maximal intervals whose duration is less than Threshold.
+  - name: union_all
+    arg_names: [intervalLists, result]
+    meaning: Union of a list of interval-lists (SDF interval algebra).
+  - name: intersect_all
+    arg_names: [intervalLists, result]
+    meaning: Intersection of a list of interval-lists (SDF interval algebra).
+  - name: relative_complement_all
+    arg_names: [intervals, intervalLists, result]
+    meaning: Intervals minus every interval-list in the list (SDF interval algebra).
+
+# ---------------------------------------------------------------------------
+# Threshold keys — thresholds(Key, Value) from patternsParameters/thresholds.prolog.
+# Values are the committed Brest-dataset defaults.
+# ---------------------------------------------------------------------------
+thresholds:
+  - {key: hcNearCoastMax, value: 5.0, meaning: Max speed (knots) before highSpeedNearCoast fires.}
+  - {key: underWayMin, value: 2.7, meaning: Minimum underway speed (knots).}
+  - {key: underWayMax, value: 48.6, meaning: Maximum plausible underway speed (knots).}
+  - {key: onRouteDist, value: 0.5, meaning: On-route distance tolerance.}
+  - {key: incomMin, value: 3, meaning: Lower bound for incompatible-speed band.}
+  - {key: incomMax, value: 12, meaning: Upper bound for incompatible-speed band.}
+  - {key: adriftAngThr, value: 40.0, meaning: Course-vs-heading angle threshold (degrees) for drifting.}
+  - {key: agroundMinDiff, value: 0.2, meaning: Minimum position difference for aground detection.}
+  - {key: agroundTime, value: 3600, meaning: Minimum duration (seconds) for aground.}
+  - {key: aOrMTime, value: 1800, meaning: Minimum duration (seconds) for anchoredOrMoored.}
+  - {key: trawlspeedMin, value: 1.0, meaning: Lower bound of the trawling speed band (knots).}
+  - {key: trawlspeedMax, value: 9.0, meaning: Upper bound of the trawling speed band (knots).}
+  - {key: trawlingCrs, value: 1800, meaning: Heading-change window (seconds) for trawlingMovement.}
+  - {key: tugSearchWin, value: 600, meaning: Search window (seconds) for tug detection.}
+  - {key: tugMinSpeed, value: 1.2, meaning: Minimum tug speed (knots).}
+  - {key: tugSpeedDiffMax, value: 3.0, meaning: Max speed difference (knots) within a tugging pair.}
+  - {key: tugAngleDiffMax, value: 60.0, meaning: Max heading difference (degrees) within a tugging pair.}
+  - {key: tuggingMin, value: 1.2, meaning: Lower bound of the tuggingSpeed band (knots).}
+  - {key: tuggingMax, value: 15.0, meaning: Upper bound of the tuggingSpeed band (knots).}
+  - {key: tuggingTime, value: 300, meaning: Minimum duration (seconds) for tugging.}
+  - {key: movingMin, value: 0.5, meaning: Minimum speed (knots) to count as moving.}
+  - {key: movingMax, value: 48.6, meaning: Maximum plausible moving speed (knots).}
+  - {key: rendezvousTime, value: 240, meaning: Minimum duration (seconds) for rendezVous.}
+  - {key: sarMinSpeed, value: 2.7, meaning: Minimum speed (knots) for sarSpeed.}
+  - {key: trawlingTime, value: 3600, meaning: Minimum duration (seconds) for trawling.}
+  - {key: maaTime, value: 600, meaning: Movement-at-anchor time window (seconds).}
+  - {key: loiteringTime, value: 1800, meaning: Minimum duration (seconds) for loitering.}
+
+# ---------------------------------------------------------------------------
+# Entity domains — the things fluents/events range over, grounded via a
+# dynamicDomain predicate. Drives deterministic head-derived grounding
+# (generation/grounding.py): a single vessel argument grounds over vessel/1; a
+# head with exactly two vessel arguments grounds over the observed vpair/2 pairs
+# (matching examples/maritime/resources/patterns/rules.prolog).
+# ---------------------------------------------------------------------------
+entities:
+  - predicate: vessel
+    arg_names: [vessel, vessel1, vessel2]
+    pair_predicate: vpair
+
+# ---------------------------------------------------------------------------
+# Value domains — closed enumerations of legal atoms.
+# ---------------------------------------------------------------------------
+value_domains:
+  - name: areaType
+    atoms: [anchorage, fishing, natura, nearCoast, nearCoast5k, nearPorts]
+    meaning: The six area types (areaTypes.prolog) a withinArea/entersArea/leavesArea argument may take.
+  - name: portStatus
+    atoms: [nearPorts, farFromPorts]
+    meaning: Port-proximity status (portStatuses.prolog); the value of gap and stopped.
+  - name: movingStatus
+    atoms: [below, normal, above]
+    meaning: Speed-band status (movingStatus.prolog); the value of movingSpeed.
+  - name: vesselType
+    atoms: [tug, pilotvessel, fishing, sar]
+    meaning: Rule-critical vessel types (tug/pilotvessel/fishing/sar); the full ~30-type set is in vesselInformation/typeSpeeds.prolog.
