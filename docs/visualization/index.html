@@ -1,0 +1,1308 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>RTEC-Agent AI Layer - Architecture Overview</title>
+    <style>
+        :root {
+            --primary: #409eff;
+            --secondary: #67c23a;
+            --warning: #e6a23c;
+            --danger: #f56c6c;
+            --info: #909399;
+            --dark: #303133;
+            --light: #f5f7fa;
+            --edf-color: #67c23a;
+            --sdf-color: #f56c6c;
+        }
+        
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+            background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
+            color: #fff;
+            min-height: 100vh;
+        }
+        
+        .nav {
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            background: rgba(0, 0, 0, 0.8);
+            backdrop-filter: blur(10px);
+            z-index: 1000;
+            padding: 1rem 2rem;
+            display: flex;
+            gap: 1rem;
+            justify-content: center;
+            flex-wrap: wrap;
+        }
+        
+        .nav a {
+            color: #fff;
+            text-decoration: none;
+            padding: 0.5rem 1rem;
+            border-radius: 8px;
+            transition: all 0.3s;
+            font-size: 0.9rem;
+        }
+        
+        .nav a:hover, .nav a.active {
+            background: var(--primary);
+        }
+        
+        .canvas {
+            min-height: 100vh;
+            padding: 6rem 2rem 2rem;
+            display: none;
+        }
+        
+        .canvas.active {
+            display: block;
+        }
+        
+        h1 {
+            text-align: center;
+            font-size: 2.5rem;
+            margin-bottom: 1rem;
+            background: linear-gradient(135deg, var(--primary), var(--secondary));
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+        }
+        
+        h2 {
+            color: var(--primary);
+            margin: 2rem 0 1rem;
+            padding-bottom: 0.5rem;
+            border-bottom: 2px solid var(--primary);
+        }
+        
+        h3 {
+            color: var(--secondary);
+            margin: 1.5rem 0 0.75rem;
+        }
+        
+        .subtitle {
+            text-align: center;
+            color: var(--info);
+            margin-bottom: 2rem;
+        }
+        
+        .card {
+            background: rgba(255, 255, 255, 0.05);
+            border-radius: 16px;
+            padding: 1.5rem;
+            margin: 1rem 0;
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            backdrop-filter: blur(10px);
+        }
+        
+        .card:hover {
+            border-color: var(--primary);
+            box-shadow: 0 8px 32px rgba(64, 158, 255, 0.1);
+        }
+        
+        .grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+            gap: 1.5rem;
+            margin: 1.5rem 0;
+        }
+        
+        .grid-3 {
+            grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+        }
+        
+        .badge {
+            display: inline-block;
+            padding: 0.25rem 0.75rem;
+            border-radius: 20px;
+            font-size: 0.75rem;
+            font-weight: 600;
+            margin: 0.25rem;
+        }
+        
+        .badge-edf { background: var(--edf-color); color: #fff; }
+        .badge-sdf { background: var(--sdf-color); color: #fff; }
+        .badge-implemented { background: var(--secondary); color: #fff; }
+        .badge-deferred { background: var(--warning); color: #333; }
+        .badge-port { background: var(--primary); color: #fff; }
+        .badge-adapter { background: var(--warning); color: #333; }
+        
+        .status-implemented { border-left: 4px solid var(--secondary); }
+        .status-deferred { border-left: 4px solid var(--warning); }
+        .status-port { border-left: 4px solid var(--primary); }
+        
+        code {
+            background: rgba(0, 0, 0, 0.3);
+            padding: 0.2rem 0.5rem;
+            border-radius: 4px;
+            font-family: 'Monaco', 'Menlo', monospace;
+            font-size: 0.85rem;
+            color: var(--secondary);
+        }
+        
+        pre {
+            background: rgba(0, 0, 0, 0.4);
+            padding: 1rem;
+            border-radius: 8px;
+            overflow-x: auto;
+            font-family: 'Monaco', 'Menlo', monospace;
+            font-size: 0.85rem;
+            line-height: 1.5;
+            margin: 1rem 0;
+        }
+        
+        .flow-diagram {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            flex-wrap: wrap;
+            gap: 0.5rem;
+            padding: 2rem;
+            background: rgba(0, 0, 0, 0.2);
+            border-radius: 12px;
+            margin: 1.5rem 0;
+        }
+        
+        .flow-box {
+            background: linear-gradient(135deg, rgba(64, 158, 255, 0.2), rgba(64, 158, 255, 0.1));
+            border: 2px solid var(--primary);
+            padding: 1rem 1.5rem;
+            border-radius: 12px;
+            text-align: center;
+            min-width: 120px;
+        }
+        
+        .flow-arrow {
+            font-size: 1.5rem;
+            color: var(--primary);
+        }
+        
+        .tree {
+            font-family: 'Monaco', 'Menlo', monospace;
+            font-size: 0.85rem;
+            line-height: 1.8;
+            background: rgba(0, 0, 0, 0.3);
+            padding: 1.5rem;
+            border-radius: 12px;
+            overflow-x: auto;
+        }
+        
+        .tree-folder { color: var(--primary); }
+        .tree-file { color: var(--secondary); }
+        .tree-comment { color: var(--info); font-style: italic; }
+        
+        .table-container {
+            overflow-x: auto;
+            margin: 1rem 0;
+        }
+        
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            background: rgba(0, 0, 0, 0.2);
+            border-radius: 8px;
+            overflow: hidden;
+        }
+        
+        th, td {
+            padding: 0.75rem 1rem;
+            text-align: left;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+        }
+        
+        th {
+            background: rgba(64, 158, 255, 0.2);
+            color: var(--primary);
+            font-weight: 600;
+        }
+        
+        tr:hover {
+            background: rgba(255, 255, 255, 0.05);
+        }
+        
+        .highlight {
+            background: linear-gradient(135deg, rgba(103, 194, 58, 0.2), rgba(103, 194, 58, 0.1));
+            border: 1px solid var(--secondary);
+            padding: 1rem;
+            border-radius: 8px;
+            margin: 1rem 0;
+        }
+        
+        .warning {
+            background: linear-gradient(135deg, rgba(245, 108, 108, 0.2), rgba(245, 108, 108, 0.1));
+            border: 1px solid var(--danger);
+            padding: 1rem;
+            border-radius: 8px;
+            margin: 1rem 0;
+        }
+        
+        .info-box {
+            background: linear-gradient(135deg, rgba(64, 158, 255, 0.2), rgba(64, 158, 255, 0.1));
+            border: 1px solid var(--primary);
+            padding: 1rem;
+            border-radius: 8px;
+            margin: 1rem 0;
+        }
+        
+        .two-col {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 2rem;
+        }
+        
+        @media (max-width: 768px) {
+            .two-col {
+                grid-template-columns: 1fr;
+            }
+        }
+        
+        .metric-card {
+            text-align: center;
+            padding: 2rem;
+        }
+        
+        .metric-value {
+            font-size: 3rem;
+            font-weight: bold;
+            color: var(--primary);
+        }
+        
+        .metric-label {
+            color: var(--info);
+            margin-top: 0.5rem;
+        }
+        
+        ul, ol {
+            padding-left: 1.5rem;
+            margin: 0.5rem 0;
+        }
+        
+        li {
+            margin: 0.5rem 0;
+            line-height: 1.6;
+        }
+        
+        .mermaid-placeholder {
+            background: rgba(0, 0, 0, 0.3);
+            padding: 2rem;
+            border-radius: 12px;
+            text-align: center;
+            margin: 1rem 0;
+        }
+        
+        .legend {
+            display: flex;
+            gap: 1.5rem;
+            flex-wrap: wrap;
+            margin: 1rem 0;
+            padding: 1rem;
+            background: rgba(0, 0, 0, 0.2);
+            border-radius: 8px;
+        }
+        
+        .legend-item {
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+        }
+        
+        .legend-color {
+            width: 16px;
+            height: 16px;
+            border-radius: 4px;
+        }
+    </style>
+</head>
+<body>
+    <nav class="nav">
+        <a href="#overview" class="active" onclick="showCanvas('overview')">Overview</a>
+        <a href="#architecture" onclick="showCanvas('architecture')">Architecture</a>
+        <a href="#types" onclick="showCanvas('types')">Types & Ports</a>
+        <a href="#adapters" onclick="showCanvas('adapters')">Adapters</a>
+        <a href="#domain" onclick="showCanvas('domain')">Domain Layer</a>
+        <a href="#generation" onclick="showCanvas('generation')">Generation</a>
+        <a href="#repair" onclick="showCanvas('repair')">Repair Loop</a>
+        <a href="#fixtures" onclick="showCanvas('fixtures')">Fixtures & Eval</a>
+        <a href="#cli" onclick="showCanvas('cli')">CLI & Usage</a>
+    </nav>
+
+    <!-- CANVAS 1: Overview -->
+    <section id="overview" class="canvas active">
+        <h1>🧠 RTEC-Agent AI Layer</h1>
+        <p class="subtitle">LLM-powered rule generation and querying for Run-Time Event Calculus</p>
+        
+        <div class="grid">
+            <div class="card metric-card">
+                <div class="metric-value">2</div>
+                <div class="metric-label">Capabilities</div>
+            </div>
+            <div class="card metric-card">
+                <div class="metric-value">3</div>
+                <div class="metric-label">Port Interfaces</div>
+            </div>
+            <div class="card metric-card">
+                <div class="metric-value">MSA</div>
+                <div class="metric-label">Primary Domain</div>
+            </div>
+        </div>
+        
+        <h2>Two Core Capabilities</h2>
+        <div class="grid">
+            <div class="card status-implemented">
+                <h3>1. Rule Generation <span class="badge badge-implemented">P1 Complete</span></h3>
+                <p>Turn a natural-language description of a composite activity into valid RTEC Prolog rules.</p>
+                <ul>
+                    <li>Stateless generator agent</li>
+                    <li>Deterministic grounding from rule heads</li>
+                    <li>Domain vocabulary enforcement</li>
+                </ul>
+            </div>
+            <div class="card status-deferred">
+                <h3>2. Querying <span class="badge badge-deferred">P2 Deferred</span></h3>
+                <p>Turn NL questions about recognition results into queries executed against RTEC output.</p>
+                <ul>
+                    <li>Activity/entity/time resolution</li>
+                    <li><code>holdsAt</code>/<code>holdsFor</code> query dispatch</li>
+                    <li>Grounded answer generation</li>
+                </ul>
+            </div>
+        </div>
+        
+        <h2>The Central Thesis Contribution</h2>
+        <div class="highlight">
+            <p><strong>The scientific contribution is NOT "an LLM can write Prolog."</strong></p>
+            <p style="margin-top: 0.5rem;">It is: <strong>execution-guided iterative self-repair produces measurable improvement in rule quality, with RTEC execution against ground-truth intervals as the behavioral oracle.</strong></p>
+        </div>
+        
+        <h2>EDF vs SDF: The Central Asymmetry</h2>
+        <div class="grid">
+            <div class="card">
+                <h3><span class="badge badge-edf">EDF</span> Event-Driven Fluents</h3>
+                <p>Defined by <code>initiatedAt</code>/<code>terminatedAt</code> rules over discrete events.</p>
+                <pre>initiatedAt(withinArea(V, AT)=true, T) :-
+    happensAt(entersArea(V, Area), T),
+    areaType(Area, AT).</pre>
+                <p style="color: var(--secondary); margin-top: 0.5rem;">✓ Converges fast (often single-shot)</p>
+            </div>
+            <div class="card">
+                <h3><span class="badge badge-sdf">SDF</span> Statically Determined Fluents</h3>
+                <p>Defined by a single <code>holdsFor</code> rule using interval algebra.</p>
+                <pre>holdsFor(loitering(V)=true, I) :-
+    holdsFor(lowSpeed(V)=true, Il),
+    holdsFor(stopped(V)=farFromPorts, Is),
+    union_all([Il, Is], Iu),
+    intDurGreater(Iu, Thresh, I).</pre>
+                <p style="color: var(--danger); margin-top: 0.5rem;">✗ Plateaus below convergence</p>
+            </div>
+        </div>
+        
+        <div class="warning">
+            <strong>⚠️ The #1 Problem:</strong> Compilable ≠ Correct. The LLM produces Prolog that compiles cleanly but recognizes the wrong intervals. A clean compile tells you NOTHING about behavioral correctness. The only valid oracle is RTEC execution scored against ground-truth intervals.
+        </div>
+    </section>
+
+    <!-- CANVAS 2: Architecture -->
+    <section id="architecture" class="canvas">
+        <h1>🏗️ System Architecture</h1>
+        <p class="subtitle">LangGraph StateGraph with deterministic routing</p>
+        
+        <h2>Design Philosophy</h2>
+        <div class="info-box">
+            <p>The AI layer is a <strong>LangGraph StateGraph</strong> — a deterministic state machine, NOT a linear LangChain pipeline and NOT a free-form ReAct agent. This is a deliberate, defended choice for thesis reproducibility.</p>
+        </div>
+        
+        <h2>Rule Generation Loop</h2>
+        <div class="flow-diagram">
+            <div class="flow-box"><strong>Generate</strong><br><small>LLM writes rules</small></div>
+            <span class="flow-arrow">→</span>
+            <div class="flow-box"><strong>Execute</strong><br><small>RTEC runs</small></div>
+            <span class="flow-arrow">→</span>
+            <div class="flow-box"><strong>Compare</strong><br><small>Point-set F1</small></div>
+            <span class="flow-arrow">→</span>
+            <div class="flow-box"><strong>Build Feedback</strong><br><small>Typed repair</small></div>
+            <span class="flow-arrow">↺</span>
+        </div>
+        
+        <h2>Package Structure</h2>
+        <div class="tree">
+<span class="tree-folder">rtec_llm/</span>
+├── <span class="tree-file">__init__.py</span>         <span class="tree-comment"># Package docstring</span>
+├── <span class="tree-file">py.typed</span>            <span class="tree-comment"># PEP 561 marker</span>
+├── <span class="tree-file">types.py</span>            <span class="tree-comment"># Interval, Window, ExecutionResult, ScoreResult...</span>
+├── <span class="tree-file">cli.py</span>              <span class="tree-comment"># Thin entry point (composition root)</span>
+│
+├── <span class="tree-folder">ports/</span>              <span class="tree-comment"># Protocol interfaces (the seams)</span>
+│   ├── <span class="tree-file">engine.py</span>       <span class="tree-comment"># EnginePort</span>
+│   ├── <span class="tree-file">scoring.py</span>      <span class="tree-comment"># ScoringPort</span>
+│   └── <span class="tree-file">llm.py</span>          <span class="tree-comment"># LLMPort</span>
+│
+├── <span class="tree-folder">adapters/</span>           <span class="tree-comment"># Concrete port implementations</span>
+│   ├── <span class="tree-folder">engine/</span>         <span class="tree-comment"># rtec_subprocess.py</span>
+│   ├── <span class="tree-folder">scoring/</span>        <span class="tree-comment"># rtec_scoring.py</span>
+│   └── <span class="tree-folder">llm/</span>            <span class="tree-comment"># openai_provider.py + factory</span>
+│
+├── <span class="tree-folder">domain/</span>             <span class="tree-comment"># Vocabulary loader</span>
+│   ├── <span class="tree-file">spec.py</span>         <span class="tree-comment"># Vocabulary, Predicate, Fluent types</span>
+│   ├── <span class="tree-file">loader.py</span>       <span class="tree-comment"># YAML → spec</span>
+│   └── <span class="tree-file">msa.yaml</span>        <span class="tree-comment"># Maritime domain vocabulary</span>
+│
+├── <span class="tree-folder">fixtures/</span>           <span class="tree-comment"># Test case definitions</span>
+│   ├── <span class="tree-file">schema.py</span>       <span class="tree-comment"># FixtureSpec type</span>
+│   ├── <span class="tree-file">loader.py</span>       <span class="tree-comment"># YAML → FixtureSpec</span>
+│   └── <span class="tree-folder">data/msa/</span>       <span class="tree-comment"># MSA fixtures</span>
+│
+├── <span class="tree-folder">generation/</span>         <span class="tree-comment"># Stateless rule generator</span>
+│   ├── <span class="tree-file">generator.py</span>    <span class="tree-comment"># Main generate() function</span>
+│   ├── <span class="tree-file">prompts.py</span>      <span class="tree-comment"># System/user prompt builders</span>
+│   └── <span class="tree-file">grounding.py</span>    <span class="tree-comment"># Deterministic head-derived grounding</span>
+│
+├── <span class="tree-folder">repair/</span>             <span class="tree-comment"># LangGraph repair loop (P2 deferred)</span>
+│   ├── <span class="tree-file">state.py</span>        <span class="tree-comment"># RepairState TypedDict</span>
+│   ├── <span class="tree-file">graph.py</span>        <span class="tree-comment"># StateGraph wiring</span>
+│   ├── <span class="tree-file">orchestrator.py</span> <span class="tree-comment"># Stateful diagnoser + router</span>
+│   └── <span class="tree-file">feedback.py</span>     <span class="tree-comment"># Disagreement → repair instruction</span>
+│
+├── <span class="tree-folder">query/</span>              <span class="tree-comment"># NL query translator (P2 deferred)</span>
+│   └── <span class="tree-file">translator.py</span>
+│
+└── <span class="tree-folder">evaluation/</span>         <span class="tree-comment"># LangSmith evaluators (P2 deferred)</span>
+    └── <span class="tree-file">evaluators.py</span>
+        </div>
+        
+        <h2>Dependency Flow</h2>
+        <div class="info-box">
+            <p><strong>Arrows point inward toward ports and types.</strong> Adapters depend on ports; core logic depends on ports, types, and domain spec; nothing depends on a concrete adapter except the CLI (which wires them).</p>
+        </div>
+        
+        <div class="table-container">
+            <table>
+                <thead>
+                    <tr>
+                        <th>From</th>
+                        <th>May Import</th>
+                        <th>Must NOT Import</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr>
+                        <td><code>types</code></td>
+                        <td>(nothing in package)</td>
+                        <td>anything else in rtec_llm/</td>
+                    </tr>
+                    <tr>
+                        <td><code>ports/*</code></td>
+                        <td>types</td>
+                        <td>adapters, domain, fixtures, generation, repair</td>
+                    </tr>
+                    <tr>
+                        <td><code>adapters/*</code></td>
+                        <td>ports/*, types</td>
+                        <td>domain, fixtures, generation, repair, other adapters</td>
+                    </tr>
+                    <tr>
+                        <td><code>generation/*</code></td>
+                        <td>types, domain, ports/llm</td>
+                        <td>adapters, ports/engine, ports/scoring, fixtures</td>
+                    </tr>
+                    <tr>
+                        <td><code>cli.py</code></td>
+                        <td>everything (composition root)</td>
+                        <td>—</td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>
+    </section>
+
+    <!-- CANVAS 3: Types & Ports -->
+    <section id="types" class="canvas">
+        <h1>📐 Types & Port Interfaces</h1>
+        <p class="subtitle">The lingua franca between ports, adapters, and core logic</p>
+        
+        <h2>Core Types (types.py)</h2>
+        <div class="grid grid-3">
+            <div class="card">
+                <h3><code>Interval</code></h3>
+                <p>Half-open temporal interval <code>[start, end)</code></p>
+                <pre>@dataclass(frozen=True)
+class Interval:
+    start: Timestamp
+    end: Timestamp</pre>
+            </div>
+            <div class="card">
+                <h3><code>Window</code></h3>
+                <p>RTEC execution window parameters</p>
+                <pre>@dataclass(frozen=True)
+class Window:
+    start_time: Timestamp
+    end_time: Timestamp
+    window_size: int
+    step: int</pre>
+            </div>
+            <div class="card">
+                <h3><code>Message</code></h3>
+                <p>Chat-style LLM message</p>
+                <pre>@dataclass(frozen=True)
+class Message:
+    role: Role  # system|user|assistant
+    content: str</pre>
+            </div>
+            <div class="card">
+                <h3><code>FluentValuePair</code></h3>
+                <p>Identifies a fluent regardless of args</p>
+                <pre>@dataclass(frozen=True)
+class FluentValuePair:
+    name: str   # e.g. "withinArea"
+    value: str  # e.g. "true"</pre>
+            </div>
+            <div class="card">
+                <h3><code>RecognisedFluent</code></h3>
+                <p>Grounded fluent with intervals</p>
+                <pre>@dataclass(frozen=True)
+class RecognisedFluent:
+    fluent: FluentValuePair
+    args: tuple[str, ...]
+    intervals: tuple[Interval, ...]</pre>
+            </div>
+            <div class="card">
+                <h3><code>FluentType</code></h3>
+                <p>The central thesis split</p>
+                <pre>FluentType = Literal["EDF", "SDF"]
+
+# EDF: initiatedAt/terminatedAt
+# SDF: holdsFor + interval algebra</pre>
+            </div>
+        </div>
+        
+        <h2>Result Types</h2>
+        <div class="grid">
+            <div class="card">
+                <h3><code>ExecutionResult</code></h3>
+                <p>Result from <code>EnginePort.run()</code></p>
+                <pre>@dataclass(frozen=True)
+class ExecutionResult:
+    recognised: tuple[RecognisedFluent, ...]
+    errors: tuple[EngineError, ...] = ()
+    wall_time_ms: int | None = None</pre>
+                <p style="margin-top: 0.5rem; color: var(--info);">Errors are data, not exceptions — the repair loop reacts to them.</p>
+            </div>
+            <div class="card">
+                <h3><code>ScoreResult</code></h3>
+                <p>Point-set timepoint scores from <code>ScoringPort.score()</code></p>
+                <pre>@dataclass(frozen=True)
+class ScoreResult:
+    tp: int
+    fp: int
+    fn: int
+    precision: float
+    recall: float
+    f1: float
+    fluent_type: FluentType
+    disagreements: tuple[Disagreement, ...]</pre>
+            </div>
+        </div>
+        
+        <h2>Port Interfaces</h2>
+        <div class="legend">
+            <div class="legend-item">
+                <div class="legend-color" style="background: var(--primary);"></div>
+                <span>Port Interface (Protocol)</span>
+            </div>
+            <div class="legend-item">
+                <div class="legend-color" style="background: var(--warning);"></div>
+                <span>Adapter Implementation</span>
+            </div>
+        </div>
+        
+        <div class="grid">
+            <div class="card status-port">
+                <h3><span class="badge badge-port">Port</span> EnginePort</h3>
+                <p>Abstract RTEC executor — the oracle for rule behavior</p>
+                <pre>class EnginePort(Protocol):
+    def run(
+        self, *,
+        rules: str,
+        declarations: str | None,
+        event_stream: Path,
+        window: Window,
+        static_data: tuple[Path, ...],
+    ) -> ExecutionResult: ...</pre>
+                <p style="margin-top: 0.5rem;"><span class="badge badge-adapter">Adapter</span> <code>RtecSubprocessEngine</code></p>
+            </div>
+            <div class="card status-port">
+                <h3><span class="badge badge-port">Port</span> ScoringPort</h3>
+                <p>Point-set timepoint F1 scorer — THE correctness signal</p>
+                <pre>class ScoringPort(Protocol):
+    def score(
+        self,
+        predicted: ExecutionResult,
+        ground_truth_file: Path,
+        fluent_type: FluentType,
+    ) -> ScoreResult: ...</pre>
+                <p style="margin-top: 0.5rem;"><span class="badge badge-adapter">Adapter</span> <code>RtecScorer</code></p>
+            </div>
+            <div class="card status-port">
+                <h3><span class="badge badge-port">Port</span> LLMPort</h3>
+                <p>Stateless chat-completion provider</p>
+                <pre>class LLMPort(Protocol):
+    def complete(
+        self, *,
+        messages: list[Message],
+        model: str,
+        temperature: float,
+    ) -> str: ...</pre>
+                <p style="margin-top: 0.5rem;"><span class="badge badge-adapter">Adapter</span> <code>OpenAIProvider</code>, factory for Claude/Gemini/Ollama/GLM</p>
+            </div>
+        </div>
+    </section>
+
+    <!-- CANVAS 4: Adapters -->
+    <section id="adapters" class="canvas">
+        <h1>🔌 Adapters</h1>
+        <p class="subtitle">Concrete implementations of port interfaces</p>
+        
+        <h2>Engine Adapter: RtecSubprocessEngine</h2>
+        <div class="card status-implemented">
+            <h3><span class="badge badge-implemented">Implemented</span> rtec_subprocess.py</h3>
+            <p>Runs the REAL RTEC engine via SWI-Prolog subprocess.</p>
+            
+            <h4 style="margin-top: 1rem;">Two-Step Invocation</h4>
+            <div class="flow-diagram">
+                <div class="flow-box">
+                    <strong>1. Compile</strong><br>
+                    <code style="font-size: 0.7rem;">compile.sh --event-description=rules.prolog</code>
+                </div>
+                <span class="flow-arrow">→</span>
+                <div class="flow-box">
+                    <strong>2. Run</strong><br>
+                    <code style="font-size: 0.7rem;">swipl -l continuousQueries.prolog -g continuousQueries(...)</code>
+                </div>
+            </div>
+            
+            <h4>Key Design Decisions</h4>
+            <ul>
+                <li>Separates compile-time from run-time failures into distinct typed errors</li>
+                <li>Avoids the driver's <code>sleep 10</code> on failed compile</li>
+                <li>Writes only to temp directories — never modifies <code>examples/</code></li>
+                <li>Parses recognised intervals directly (no file re-read)</li>
+            </ul>
+            
+            <pre>engine = RtecSubprocessEngine(
+    app="maritime",
+    repo_root=Path("/path/to/RTEC-agent"),
+    timeout_s=600.0
+)
+result = engine.run(
+    rules=prolog_rules,
+    declarations=grounding_decls,
+    event_stream=Path("examples/maritime/dataset/csv/brest_critical.csv"),
+    window=Window(start_time=1443650400, end_time=1443686400, window_size=36000, step=36000),
+    static_data=(aux / "compare.prolog", aux / "loadStaticData.prolog"),
+)</pre>
+        </div>
+        
+        <h2>Scoring Adapter: RtecScorer</h2>
+        <div class="card status-implemented">
+            <h3><span class="badge badge-implemented">Implemented</span> rtec_scoring.py</h3>
+            <p>Wraps <code>execution scripts/scoring/utilities/</code> for point-set F1.</p>
+            
+            <h4 style="margin-top: 1rem;">Parser Ownership Contract</h4>
+            <ul>
+                <li>Predicted intervals arrive <strong>already typed</strong> from the engine adapter</li>
+                <li>This adapter parses <strong>only</strong> the ground-truth file</li>
+                <li>Adapts typed→dict in memory, never re-parses RTEC output</li>
+            </ul>
+            
+            <h4>Disagreement Classification</h4>
+            <div class="grid grid-3">
+                <div class="card">
+                    <code>boundary_off_by_one</code>
+                    <p style="font-size: 0.85rem; margin-top: 0.5rem;">~1-tick region adjacent to a matched region (the right-open drift)</p>
+                </div>
+                <div class="card">
+                    <code>over_production</code>
+                    <p style="font-size: 0.85rem; margin-top: 0.5rem;">Substantial FP span (predicted but absent from GT)</p>
+                </div>
+                <div class="card">
+                    <code>under_production</code>
+                    <p style="font-size: 0.85rem; margin-top: 0.5rem;">Substantial FN span (GT but not predicted)</p>
+                </div>
+            </div>
+        </div>
+        
+        <h2>LLM Adapter: OpenAIProvider</h2>
+        <div class="card status-implemented">
+            <h3><span class="badge badge-implemented">Implemented</span> openai_provider.py</h3>
+            <p>OpenAI chat-completions (GPT-4o primary).</p>
+            
+            <ul>
+                <li>Lazy SDK import — package imports without <code>openai</code> installed</li>
+                <li>Stateless: no turns retained between calls</li>
+                <li>Provider errors propagate as exceptions (not diagnostic signal)</li>
+            </ul>
+            
+            <h4 style="margin-top: 1rem;">Multi-Provider Factory</h4>
+            <pre>from rtec_llm.adapters.llm import make_llm
+
+llm = make_llm("openai")      # OpenAI / GPT-4o
+llm = make_llm("anthropic")   # Claude
+llm = make_llm("gemini")      # Gemini
+llm = make_llm("ollama")      # Ollama local
+llm = make_llm("glm")         # GLM
+llm = make_llm("reference")   # Offline perfect-generation control</pre>
+        </div>
+    </section>
+
+    <!-- CANVAS 5: Domain Layer -->
+    <section id="domain" class="canvas">
+        <h1>🌐 Domain Layer</h1>
+        <p class="subtitle">Typed vocabulary — the closed symbol set for each domain</p>
+        
+        <h2>Vocabulary Structure</h2>
+        <div class="info-box">
+            <p>A <code>Vocabulary</code> is the <strong>closed set of symbols</strong> an LLM is allowed to emit. Every event, fluent, value, and threshold the generator produces must exist here. <strong>Inventing a plausible-but-absent predicate is the #1 failure mode.</strong></p>
+        </div>
+        
+        <div class="grid grid-3">
+            <div class="card">
+                <h3><code>Predicate</code></h3>
+                <p>Input event signature</p>
+                <pre>name: "entersArea"
+arg_names: [vessel, area]
+meaning: "Vessel enters area"</pre>
+            </div>
+            <div class="card">
+                <h3><code>Fluent</code></h3>
+                <p>Fluent with values and type</p>
+                <pre>name: "withinArea"
+arg_names: [vessel, areaType]
+values: ["true"]
+fluent_type: EDF</pre>
+            </div>
+            <div class="card">
+                <h3><code>BKPredicate</code></h3>
+                <p>Background knowledge</p>
+                <pre>name: "inRange"
+arg_names: [value, min, max]
+note: "EXCLUSIVE comparator!"</pre>
+            </div>
+            <div class="card">
+                <h3><code>ThresholdKey</code></h3>
+                <p>Named threshold parameter</p>
+                <pre>key: "loiteringTime"
+value: "1800"
+meaning: "Min duration (s)"</pre>
+            </div>
+            <div class="card">
+                <h3><code>ValueDomain</code></h3>
+                <p>Closed enumeration of atoms</p>
+                <pre>name: "areaType"
+atoms: [anchorage, fishing,
+  natura, nearCoast, ...]</pre>
+            </div>
+            <div class="card">
+                <h3><code>EntityDomain</code></h3>
+                <p>Entity grounding info</p>
+                <pre>predicate: "vessel"
+arg_names: [vessel, vessel1, ...]
+pair_predicate: "vpair"</pre>
+            </div>
+        </div>
+        
+        <h2>MSA Domain: Maritime Situational Awareness</h2>
+        
+        <h3>Input Events</h3>
+        <div class="table-container">
+            <table>
+                <thead>
+                    <tr><th>Event</th><th>Arguments</th><th>Meaning</th></tr>
+                </thead>
+                <tbody>
+                    <tr><td><code>entersArea</code></td><td>vessel, area</td><td>Vessel enters geographic area</td></tr>
+                    <tr><td><code>leavesArea</code></td><td>vessel, area</td><td>Vessel leaves geographic area</td></tr>
+                    <tr><td><code>velocity</code></td><td>vessel, speed, cog, heading</td><td>AIS kinematic report</td></tr>
+                    <tr><td><code>gap_start</code></td><td>vessel</td><td>AIS transmission gap begins</td></tr>
+                    <tr><td><code>gap_end</code></td><td>vessel</td><td>AIS transmission gap ends</td></tr>
+                    <tr><td><code>stop_start</code></td><td>vessel</td><td>Vessel stops</td></tr>
+                    <tr><td><code>stop_end</code></td><td>vessel</td><td>Vessel resumes motion</td></tr>
+                    <tr><td><code>slow_motion_start</code></td><td>vessel</td><td>Enters low-speed motion</td></tr>
+                    <tr><td><code>slow_motion_end</code></td><td>vessel</td><td>Leaves low-speed motion</td></tr>
+                </tbody>
+            </table>
+        </div>
+        
+        <h3>Output Fluents (Composite Activities)</h3>
+        <div class="table-container">
+            <table>
+                <thead>
+                    <tr><th>Fluent</th><th>Type</th><th>Values</th><th>Meaning</th></tr>
+                </thead>
+                <tbody>
+                    <tr><td><code>withinArea</code></td><td><span class="badge badge-edf">EDF</span></td><td>true</td><td>Vessel is inside an area type</td></tr>
+                    <tr><td><code>gap</code></td><td><span class="badge badge-edf">EDF</span></td><td>nearPorts, farFromPorts</td><td>AIS communication gap</td></tr>
+                    <tr><td><code>stopped</code></td><td><span class="badge badge-edf">EDF</span></td><td>nearPorts, farFromPorts</td><td>Vessel is stopped</td></tr>
+                    <tr><td><code>lowSpeed</code></td><td><span class="badge badge-edf">EDF</span></td><td>true</td><td>Vessel in low-speed motion</td></tr>
+                    <tr><td><code>highSpeedNearCoast</code></td><td><span class="badge badge-edf">EDF</span></td><td>true</td><td>Speed exceeds limit near coast</td></tr>
+                    <tr><td><code>underWay</code></td><td><span class="badge badge-sdf">SDF</span></td><td>true</td><td>Union of movingSpeed values</td></tr>
+                    <tr><td><code>anchoredOrMoored</code></td><td><span class="badge badge-sdf">SDF</span></td><td>true</td><td>Stopped at anchorage/port</td></tr>
+                    <tr><td><code>rendezVous</code></td><td><span class="badge badge-sdf">SDF</span></td><td>true</td><td>Two vessels stopped/slow together</td></tr>
+                    <tr><td><code>loitering</code></td><td><span class="badge badge-sdf">SDF</span></td><td>true</td><td>Low-speed far from ports</td></tr>
+                    <tr><td><code>tugging</code></td><td><span class="badge badge-sdf">SDF</span></td><td>true</td><td>Tug + vessel in proximity</td></tr>
+                </tbody>
+            </table>
+        </div>
+        
+        <h3>Usage</h3>
+        <pre>from rtec_llm.domain import load_domain
+
+vocab = load_domain("msa")  # Loads domain/msa.yaml
+
+# Query vocabulary
+vocab.event_names()          # frozenset of event names
+vocab.output_fluent_names()  # frozenset of output fluent names
+vocab.fluent("loitering")    # Get Fluent by name</pre>
+    </section>
+
+    <!-- CANVAS 6: Generation -->
+    <section id="generation" class="canvas">
+        <h1>⚙️ Rule Generation</h1>
+        <p class="subtitle">Stateless generator with deterministic grounding</p>
+        
+        <h2>Generation Pipeline</h2>
+        <div class="flow-diagram">
+            <div class="flow-box">
+                <strong>Build Prompts</strong><br>
+                <small>System + User messages</small>
+            </div>
+            <span class="flow-arrow">→</span>
+            <div class="flow-box">
+                <strong>LLM Complete</strong><br>
+                <small>Via LLMPort</small>
+            </div>
+            <span class="flow-arrow">→</span>
+            <div class="flow-box">
+                <strong>Extract Prolog</strong><br>
+                <small>From code fence</small>
+            </div>
+            <span class="flow-arrow">→</span>
+            <div class="flow-box">
+                <strong>Derive Grounding</strong><br>
+                <small>From rule head</small>
+            </div>
+        </div>
+        
+        <h2>System Prompt Structure</h2>
+        <div class="card">
+            <h3>RTEC Primer</h3>
+            <ul>
+                <li>Event Calculus conventions</li>
+                <li>Core predicates: <code>happensAt</code>, <code>holdsAt</code>, <code>holdsFor</code>, <code>initiatedAt</code>, <code>terminatedAt</code></li>
+                <li><strong>EDF vs SDF regime decision heuristic</strong></li>
+                <li>Hard rules: vocabulary enforcement, no grounding declarations</li>
+            </ul>
+            
+            <h3 style="margin-top: 1rem;">Vocabulary Rendering</h3>
+            <pre>VOCABULARY for domain `msa` (closed set — use only these):
+
+Input events (happensAt):
+  - entersArea(vessel, area) — Vessel enters a geographic area
+  - leavesArea(vessel, area) — Vessel leaves a geographic area
+  ...
+
+Output fluents (what rules may define or reference):
+  - withinArea(vessel, areaType)={true} [EDF] — Vessel is inside area
+  ...
+
+Background-knowledge predicates:
+  - areaType(area, type) — Maps area id to type
+  - inRange(value, min, max) — True when Min < Value < Max
+    [NOTE: EXCLUSIVE comparator — disagrees at endpoints!]
+  ...
+
+Threshold keys (use as thresholds(Key, Value)):
+  - loiteringTime (= 1800) — Minimum duration (seconds)</pre>
+        </div>
+        
+        <h2>Grounding Generation</h2>
+        <div class="highlight">
+            <p><strong>CLAUDE.md §5 Invariant 4:</strong> Grounding declarations are derived <strong>deterministically from the rule head</strong>, never authored by the LLM. Missing grounding is the #1 silent failure mode — generating it ourselves removes that whole failure class.</p>
+        </div>
+        
+        <div class="grid">
+            <div class="card">
+                <h3>Input: Rule Head</h3>
+                <pre>initiatedAt(withinArea(Vessel, AreaType)=true, T) :-
+    happensAt(entersArea(Vessel, Area), T),
+    areaType(Area, AreaType).</pre>
+            </div>
+            <div class="card">
+                <h3>Output: Grounding</h3>
+                <pre>grounding(withinArea(Vessel, AreaType)=true) :-
+    vessel(Vessel),
+    areaType(AreaType).</pre>
+            </div>
+        </div>
+        
+        <h3>Grounding Rules</h3>
+        <ul>
+            <li>Entity arguments (vessel, vessel1, vessel2) → entity predicate (<code>vessel/1</code>)</li>
+            <li>Two entity args + pair_predicate → <code>vpair/2</code> instead of cross-product</li>
+            <li>Value domain arguments → domain predicate (<code>areaType/1</code>)</li>
+            <li>Boolean value (<code>true</code>) → literal, no goal</li>
+        </ul>
+        
+        <h2>GeneratedRule Output</h2>
+        <pre>@dataclass(frozen=True)
+class GeneratedRule:
+    fluent_name: str                    # Target fluent
+    rules: str                          # Extracted Prolog clauses
+    grounding: str                      # Deterministic grounding
+    raw_completion: str                 # Unmodified LLM output
+    messages: tuple[Message, ...]       # Exact prompt sent</pre>
+        
+        <h2>Usage</h2>
+        <pre>from rtec_llm.generation import generate
+
+result = generate(
+    fluent=vocab.fluent("withinArea"),
+    nl_spec="A vessel is within an area for as long as it stays inside...",
+    vocab=vocab,
+    llm=llm,
+    model="gpt-4o",
+    temperature=0.0,
+)
+
+print(result.rules)      # The Prolog clauses
+print(result.grounding)  # The grounding declaration</pre>
+    </section>
+
+    <!-- CANVAS 7: Repair Loop -->
+    <section id="repair" class="canvas">
+        <h1>🔄 Repair Loop</h1>
+        <p class="subtitle">Execution-guided iterative self-repair (P2 Deferred)</p>
+        
+        <div class="warning">
+            <strong>Implementation Status:</strong> The repair loop is deferred to P2. Only the structural definitions and design constraints exist.
+        </div>
+        
+        <h2>Design: LangGraph StateGraph</h2>
+        <div class="info-box">
+            <p>A <strong>deterministic state machine</strong>, NOT a free-form ReAct agent and NOT a linear LangChain pipeline. Reproducibility for thesis evaluation requires deterministic, conditional routing over shared typed state with checkpointing.</p>
+        </div>
+        
+        <div class="flow-diagram">
+            <div class="flow-box">
+                <strong>Generate</strong><br>
+                <small>Stateless LLM</small>
+            </div>
+            <span class="flow-arrow">→</span>
+            <div class="flow-box">
+                <strong>Execute</strong><br>
+                <small>RTEC engine</small>
+            </div>
+            <span class="flow-arrow">→</span>
+            <div class="flow-box">
+                <strong>Compare</strong><br>
+                <small>Point-set F1</small>
+            </div>
+            <span class="flow-arrow">→</span>
+            <div class="flow-box">
+                <strong>Build Feedback</strong><br>
+                <small>Typed repair</small>
+            </div>
+            <span class="flow-arrow">↺</span>
+        </div>
+        
+        <h2>Components</h2>
+        <div class="grid">
+            <div class="card status-deferred">
+                <h3>RepairState <span class="badge badge-deferred">P2</span></h3>
+                <p>TypedDict threaded through every node</p>
+                <ul>
+                    <li>Current rule</li>
+                    <li>Latest ExecutionResult and ScoreResult</li>
+                    <li>Best-so-far snapshot</li>
+                    <li>Typed repair feedback</li>
+                    <li>Iteration counter</li>
+                </ul>
+            </div>
+            <div class="card status-deferred">
+                <h3>Orchestrator <span class="badge badge-deferred">P2</span></h3>
+                <p>Stateful agent for diagnosis and routing</p>
+                <ul>
+                    <li>Diagnoses failures from execution diff</li>
+                    <li>Issues typed repair instruction</li>
+                    <li>Performs deterministic routing</li>
+                    <li>Prioritises reasoning over output-form</li>
+                </ul>
+            </div>
+            <div class="card status-deferred">
+                <h3>Feedback Builder <span class="badge badge-deferred">P2</span></h3>
+                <p>Maps disagreements to cause classes</p>
+                <ul>
+                    <li>Boundary comparator</li>
+                    <li>Wrong termination</li>
+                    <li>Missing branch</li>
+                    <li>Off-by-one</li>
+                </ul>
+            </div>
+        </div>
+        
+        <h2>Critical Invariants</h2>
+        <div class="grid">
+            <div class="warning">
+                <h4>⚠️ Best-So-Far Policy</h4>
+                <p>F1 across iterations is NOT guaranteed monotonic. Only commit a repaired rule when its F1 <strong>strictly improves</strong> on the best seen so far; otherwise keep the previous best.</p>
+            </div>
+            <div class="warning">
+                <h4>⚠️ No Vague Feedback</h4>
+                <p>The repair instruction must be structured and specific. Vague "try again" signals are forbidden. Feed back the disagreement timestamps mapped to a cause class.</p>
+            </div>
+        </div>
+        
+        <h2>The Four Silent RTEC Failure Modes</h2>
+        <div class="grid grid-3">
+            <div class="card">
+                <h4>1. Missing Grounding</h4>
+                <p>Every authored fluent needs grounding declared, or it silently produces nothing.</p>
+                <p style="color: var(--secondary);">✓ Solved by deterministic generation</p>
+            </div>
+            <div class="card">
+                <h4>2. Wrong Fluent Regime</h4>
+                <p>EDF modeled as SDF, or vice versa.</p>
+                <p style="color: var(--warning);">⚠ Requires semantic diagnosis</p>
+            </div>
+            <div class="card">
+                <h4>3. Unbound Under Negation</h4>
+                <p>Variable appearing only inside <code>not(...)</code> is unsafe.</p>
+                <p style="color: var(--warning);">⚠ Static check possible</p>
+            </div>
+            <div class="card">
+                <h4>4. Off-by-One</h4>
+                <p>Effects take hold at T+1, not T. Endpoints drift by one tick.</p>
+                <p style="color: var(--danger);">✗ Requires interval analysis</p>
+            </div>
+        </div>
+    </section>
+
+    <!-- CANVAS 8: Fixtures & Evaluation -->
+    <section id="fixtures" class="canvas">
+        <h1>📋 Fixtures & Evaluation</h1>
+        <p class="subtitle">Annotation-driven test cases for behavioral validation</p>
+        
+        <h2>FixtureSpec Structure</h2>
+        <div class="card">
+            <pre>@dataclass(frozen=True)
+class FixtureSpec:
+    domain: str                           # e.g. "msa"
+    fluent_name: str                      # e.g. "loitering"
+    fluent_type: FluentType               # EDF or SDF
+    nl_spec: str                          # Behavioral annotation (NL)
+    event_stream_ref: Path                # Input CSV
+    ground_truth_file: Path               # Expected intervals
+    window: Window                        # Execution window
+    domain_facts: tuple[str, ...]         # Optional overrides
+    prerequisite_fluents: tuple[str, ...] # Dependencies</pre>
+        </div>
+        
+        <h2>Example Fixtures</h2>
+        <div class="grid">
+            <div class="card">
+                <h3><span class="badge badge-edf">EDF</span> withinArea</h3>
+                <p style="font-style: italic;">"A vessel is within an area for as long as it stays inside that area. Starts when vessel enters, ends when it leaves or AIS gap begins."</p>
+                <pre>fluent_type: EDF
+prerequisite_fluents: []</pre>
+                <p style="color: var(--secondary);">✓ Converges fast (often single-shot)</p>
+            </div>
+            <div class="card">
+                <h3><span class="badge badge-sdf">SDF</span> loitering</h3>
+                <p style="font-style: italic;">"A vessel is loitering when it lingers at sea, moving slowly or stopped far from any port, for a sustained period — not near coast, not anchored."</p>
+                <pre>fluent_type: SDF
+prerequisite_fluents:
+  - lowSpeed
+  - stopped
+  - withinArea
+  - anchoredOrMoored</pre>
+                <p style="color: var(--danger);">✗ Requires chained interval algebra</p>
+            </div>
+        </div>
+        
+        <h2>Ground Truth Format</h2>
+        <div class="info-box">
+            <p>Ground-truth files use raw RTEC <code>recognitions(...)</code> output format with <strong>half-open [s, e) intervals</strong>. A drift here is invisible at parse time and silently inflates FN/FP.</p>
+        </div>
+        
+        <pre>recognitions(predictions,withinArea,[[vessel_1,nearCoast],true],[(1443650400,1443652800)]).
+recognitions(predictions,withinArea,[[vessel_2,fishing],true],[(1443651000,1443655000),(1443660000,1443665000)]).</pre>
+        
+        <h2>Evaluation Flow</h2>
+        <div class="flow-diagram">
+            <div class="flow-box">
+                <strong>Load Fixture</strong><br>
+                <small>YAML → FixtureSpec</small>
+            </div>
+            <span class="flow-arrow">→</span>
+            <div class="flow-box">
+                <strong>Generate Rule</strong><br>
+                <small>+ prerequisites</small>
+            </div>
+            <span class="flow-arrow">→</span>
+            <div class="flow-box">
+                <strong>Execute RTEC</strong><br>
+                <small>Real engine</small>
+            </div>
+            <span class="flow-arrow">→</span>
+            <div class="flow-box">
+                <strong>Score</strong><br>
+                <small>Point-set F1</small>
+            </div>
+        </div>
+        
+        <h2>Prerequisite Scaffolding</h2>
+        <div class="card">
+            <p>For SDFs that depend on other fluents, prerequisite rules are scaffolded from the <strong>canonical reference event description</strong>, so the target is scored on a fair footing.</p>
+            
+            <pre># For loitering, these are scaffolded from reference:
+# - lowSpeed rules
+# - stopped rules  
+# - withinArea rules
+# - anchoredOrMoored rules
+#
+# Only loitering itself is LLM-generated and scored.</pre>
+        </div>
+        
+        <h2>LangSmith Integration <span class="badge badge-deferred">P2</span></h2>
+        <ul>
+            <li>Datasets carry ground-truth expected intervals per entity</li>
+            <li><code>fluent_type</code> tag enables EDF/SDF slicing</li>
+            <li>F1 computed inside evaluator functions (per-run, not stored)</li>
+            <li>Descriptive fields in <code>inputs</code>/<code>metadata</code></li>
+        </ul>
+    </section>
+
+    <!-- CANVAS 9: CLI & Usage -->
+    <section id="cli" class="canvas">
+        <h1>💻 CLI & Usage</h1>
+        <p class="subtitle">The composition root — where adapters are wired</p>
+        
+        <h2>Baseline Command</h2>
+        <div class="card status-implemented">
+            <h3><span class="badge badge-implemented">Implemented</span> Single-Shot Baseline</h3>
+            <p>Generate → Execute → Compare, <strong>no repair</strong>. The control arm showing whether the repair loop adds value.</p>
+            
+            <pre>python -m rtec_llm.cli baseline --domain msa --provider openai
+
+# Options:
+#   --domain msa          # Domain vocabulary (default: msa)
+#   --provider openai     # LLM provider: openai|anthropic|gemini|ollama|glm|reference
+#   --model gpt-4o        # Model ID (default: gpt-4o)
+#   --temperature 0.0     # Sampling temperature (default: 0.0)
+#   --fluent withinArea   # Run single target fluent
+#   --no-prerequisites    # Don't scaffold prerequisites (pure single-rule control)
+#   --timeout 600.0       # Per-run engine timeout in seconds</pre>
+        </div>
+        
+        <h2>Reference Provider</h2>
+        <div class="card">
+            <h3>Offline Perfect-Generation Control</h3>
+            <p>Not a real model — replays the hand-written canonical rules. Useful as an upper-bound control (should score ~1.0) and to exercise the full path without network access.</p>
+            
+            <pre>python -m rtec_llm.cli baseline --domain msa --provider reference</pre>
+        </div>
+        
+        <h2>Output</h2>
+        <pre>========================================================================
+BASELINE RESULTS (single-shot, no repair) — F1 from real RTEC execution
+========================================================================
+fluent                type      F1    prec     rec   compiled
+------------------------------------------------------------------------
+highSpeedNearCoast    EDF    0.847   0.912   0.791        yes
+withinArea            EDF    1.000   1.000   1.000        yes
+loitering             SDF    0.234   0.456   0.158        yes
+rendezVous            SDF    0.089   0.123   0.071        yes
+------------------------------------------------------------------------
+Macro F1 by fluent type (the central EDF/SDF thesis split):
+  EDF: 0.924  (n=2)
+  SDF: 0.162  (n=2)
+
+Per-fluent CSV: results/baseline_openai_20260601-143022.csv
+========================================================================</pre>
+        
+        <h2>Logged Artifacts</h2>
+        <div class="grid">
+            <div class="card">
+                <h4>Per-Fluent Files</h4>
+                <ul>
+                    <li><code>{fluent}.raw.txt</code> — Unmodified LLM completion</li>
+                    <li><code>{fluent}.assembled.prolog</code> — Full rule set (declarations + rules + prerequisites)</li>
+                </ul>
+            </div>
+            <div class="card">
+                <h4>Summary CSV</h4>
+                <p>Columns: fluent_name, fluent_type, f1, precision, recall, compiled, n_iterations, error_kind</p>
+            </div>
+        </div>
+        
+        <h2>Environment Setup</h2>
+        <pre># Required: SWI-Prolog
+swipl --version
+
+# Install package
+pip install -e ".[openai]"
+
+# Set API key
+export OPENAI_API_KEY="sk-..."
+# Or create .env file</pre>
+        
+        <h2>Future Commands <span class="badge badge-deferred">P2</span></h2>
+        <div class="grid grid-3">
+            <div class="card status-deferred">
+                <h4>repair</h4>
+                <p>Run the full iterative repair loop</p>
+            </div>
+            <div class="card status-deferred">
+                <h4>query</h4>
+                <p>Answer NL questions about recognition results</p>
+            </div>
+            <div class="card status-deferred">
+                <h4>evaluate</h4>
+                <p>Run LangSmith evaluation suite</p>
+            </div>
+        </div>
+    </section>
+
+    <script>
+        function showCanvas(id) {
+            // Hide all canvases
+            document.querySelectorAll('.canvas').forEach(c => c.classList.remove('active'));
+            // Show selected canvas
+            document.getElementById(id).classList.add('active');
+            // Update nav
+            document.querySelectorAll('.nav a').forEach(a => a.classList.remove('active'));
+            document.querySelector(`.nav a[href="#${id}"]`).classList.add('active');
+            // Scroll to top
+            window.scrollTo(0, 0);
+        }
+        
+        // Handle hash changes
+        window.addEventListener('hashchange', () => {
+            const id = window.location.hash.slice(1) || 'overview';
+            showCanvas(id);
+        });
+        
+        // Initial load
+        const initialId = window.location.hash.slice(1) || 'overview';
+        showCanvas(initialId);
+    </script>
+</body>
+</html>

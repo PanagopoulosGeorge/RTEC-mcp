@@ -1,0 +1,20 @@
+# Easy EDF — the canonical event-driven fluent. Single initiation event, two
+# termination events; converges fast (often single-shot) under the repair loop.
+domain: msa
+fluent_name: withinArea
+fluent_type: EDF
+nl_spec: >
+  A vessel is "within an area" of a particular type for as long as it stays
+  inside that area. The activity starts at the moment the vessel enters an area
+  of that type, and ends when the vessel leaves that area or when its AIS signal
+  cuts out (a communication gap begins). The area type is one of the recognised
+  maritime zones (e.g. fishing, nearCoast, anchorage, nearPorts).
+event_stream_ref: examples/maritime/dataset/csv/brest_critical.csv
+ground_truth_file: withinArea.gt.txt
+window:
+  start_time: 1443650400
+  end_time: 1443686400
+  window_size: 36000
+  step: 36000
+domain_facts: []
+prerequisite_fluents: []

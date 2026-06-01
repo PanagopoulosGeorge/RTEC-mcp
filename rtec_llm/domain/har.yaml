@@ -1,0 +1,127 @@
+# Human Activity Recognition (HAR) vocabulary — CAVIAR.
+#
+# Secondary / extension domain (CLAUDE.md §1). This is a load-only STUB authored
+# from examples/caviar/resources/patterns/rules.prolog: enough vocabulary to load
+# a Vocabulary and exercise the domain loader, not the exhaustive MSA-grade spec.
+# Atoms `true`/`false` are quoted; arity is derived from arg_names by the loader.
+
+name: har
+
+# Input events — CAVIAR appearance/movement stream (dataset/csv/*.csv).
+events:
+  - name: appear
+    arg_names: [id]
+    meaning: A tracked person/object appears in the scene.
+  - name: disappear
+    arg_names: [id]
+    meaning: A tracked person/object disappears from the scene.
+  - name: coord
+    arg_names: [id, x, y]
+    meaning: Position report for a tracked entity (pixel coordinates).
+  - name: orientation
+    arg_names: [id, angle]
+    meaning: Orientation (degrees) of a tracked entity.
+
+# Input fluents — short-term activities from the low-level classifier, plus the
+# pre-computed pairwise distance SDF.
+input_fluents:
+  - name: walking
+    arg_names: [id]
+    values: ["true"]
+    fluent_type: EDF
+    meaning: Short-term activity — the person is walking.
+  - name: running
+    arg_names: [id]
+    values: ["true"]
+    fluent_type: EDF
+    meaning: Short-term activity — the person is running.
+  - name: active
+    arg_names: [id]
+    values: ["true"]
+    fluent_type: EDF
+    meaning: Short-term activity — the person is active in place.
+  - name: inactive
+    arg_names: [id]
+    values: ["true"]
+    fluent_type: EDF
+    meaning: Short-term activity — the person is inactive (still).
+  - name: abrupt
+    arg_names: [id]
+    values: ["true"]
+    fluent_type: EDF
+    meaning: Short-term activity — abrupt movement.
+  - name: distance
+    arg_names: [id1, id2, threshold]
+    values: ["true"]
+    fluent_type: SDF
+    meaning: Pairwise distance below Threshold pixels; pre-computed per query window.
+
+# Output (composite) fluents.
+output_fluents:
+  - name: person
+    arg_names: [id]
+    values: ["true"]
+    fluent_type: EDF
+    meaning: A tracked entity is a person (initiated by any short-term activity, terminated on disappear).
+  - name: close_24
+    arg_names: [id1, id2]
+    values: ["true"]
+    fluent_type: SDF
+    meaning: Two people within 24 pixels.
+  - name: close_25
+    arg_names: [id1, id2]
+    values: ["true"]
+    fluent_type: SDF
+    meaning: Two people within 25 pixels (chained from close_24).
+  - name: close_30
+    arg_names: [id1, id2]
+    values: ["true"]
+    fluent_type: SDF
+    meaning: Two people within 30 pixels.
+  - name: close_34
+    arg_names: [id1, id2]
+    values: ["true"]
+    fluent_type: SDF
+    meaning: Two people within 34 pixels.
+  - name: closeSymmetric_30
+    arg_names: [id1, id2]
+    values: ["true"]
+    fluent_type: SDF
+    meaning: Symmetric close_30 (close in either direction).
+  - name: moving
+    arg_names: [id1, id2]
+    values: ["true"]
+    fluent_type: SDF
+    meaning: Two people walking close together in the same direction.
+  - name: meeting
+    arg_names: [id1, id2]
+    values: ["true"]
+    fluent_type: EDF
+    meaning: Two people meeting (greeting then staying close).
+  - name: greeting1
+    arg_names: [id1, id2]
+    values: ["true"]
+    fluent_type: EDF
+    meaning: One person actively greeting another that is inactive.
+  - name: fighting
+    arg_names: [id1, id2]
+    values: ["true"]
+    fluent_type: SDF
+    meaning: Two people fighting (abrupt movement in close proximity).
+  - name: leaving_object
+    arg_names: [person, object]
+    values: ["true"]
+    fluent_type: EDF
+    meaning: A person leaves an object behind.
+
+# No named threshold table in CAVIAR (distances are encoded in the fluent args);
+# background knowledge and value domains are left for the full HAR build.
+background_knowledge: []
+thresholds: []
+value_domains: []
+
+# Entity domains — CAVIAR tracks people/objects by id; pairwise fluents range
+# over id pairs (no dedicated pair predicate in the stub HAR build).
+entities:
+  - predicate: person
+    arg_names: [id, id1, id2, person, object]

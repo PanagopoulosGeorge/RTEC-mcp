@@ -1,0 +1,27 @@
+# Hard SDF — needs chained interval algebra (union_all, relative_complement_all,
+# intDurGreater). The kind of fluent that plateaus below convergence: the loop
+# can say which predicate is missing but struggles to teach interval-algebra
+# restructuring (ARCHITECTURE.md §2 — the central thesis asymmetry).
+domain: msa
+fluent_name: loitering
+fluent_type: SDF
+nl_spec: >
+  A vessel is loitering when it lingers at sea, moving slowly or stopped far from
+  any port, for a sustained period — but not while it is hugging the coast and
+  not while it is properly anchored or moored. Concretely: take the time the
+  vessel is at low speed or stopped far from ports, remove any time it spends in
+  a nearCoast area and any time it is anchored or moored, and keep only the
+  remaining stretches that last longer than the loitering minimum duration.
+event_stream_ref: examples/maritime/dataset/csv/brest_critical.csv
+ground_truth_file: loitering.gt.txt
+window:
+  start_time: 1443650400
+  end_time: 1443686400
+  window_size: 36000
+  step: 36000
+domain_facts: []
+prerequisite_fluents:
+  - lowSpeed
+  - stopped
+  - withinArea
+  - anchoredOrMoored

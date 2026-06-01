@@ -1,0 +1,23 @@
+# Mid EDF — the canonical "compiles but behaviourally wrong" case (CLAUDE.md §3).
+# Event-driven, but two semantic traps: the speed-limit comparator must match the
+# ground truth at the boundary (maritime inRange/3 is EXCLUSIVE), and termination
+# must key on leaving nearCoast specifically, not leaving any area.
+domain: msa
+fluent_name: highSpeedNearCoast
+fluent_type: EDF
+nl_spec: >
+  A vessel is moving at high speed near the coast when its speed rises above the
+  near-coast speed limit while it is inside a nearCoast area. The activity begins
+  at a speed report that exceeds the limit (while the vessel is in nearCoast) and
+  ends either when a later speed report drops back to within the limit, or when
+  the vessel leaves the nearCoast area.
+event_stream_ref: examples/maritime/dataset/csv/brest_critical.csv
+ground_truth_file: highSpeedNearCoast.gt.txt
+window:
+  start_time: 1443650400
+  end_time: 1443686400
+  window_size: 36000
+  step: 36000
+domain_facts: []
+prerequisite_fluents:
+  - withinArea

@@ -1,0 +1,12 @@
+recognitions(predictions,loitering,[[227088590],true],[(1443665583,1443667743),(1443671343,1443686401)]).
+recognitions(predictions,loitering,[[227148000],true],[(1443676173,1443682113)]).
+recognitions(predictions,loitering,[[227705102],true],[(1443674333,1443676564)]).
+recognitions(predictions,loitering,[[227806500],true],[(1443681831,1443686401)]).
+recognitions(predictions,loitering,[[228155700],true],[(1443673281,1443686241)]).
+recognitions(predictions,loitering,[[228186700],true],[(1443665068,1443677940),(1443679934,1443681746)]).
+recognitions(predictions,loitering,[[228195000],true],[(1443678765,1443682515)]).
+recognitions(predictions,loitering,[[228293000],true],[(1443682957,1443686401)]).
+recognitions(predictions,loitering,[[228843000],true],[(1443667909,1443671007),(1443672688,1443677838),(1443681239,1443683487),(1443683538,1443685458)]).
+recognitions(predictions,loitering,[[234056000],true],[(1443679221,1443683079)]).
+recognitions(predictions,loitering,[[235082366],true],[(1443674639,1443676588)]).
+recognitions(predictions,loitering,[[235103401],true],[(1443675696,1443677766)]).
