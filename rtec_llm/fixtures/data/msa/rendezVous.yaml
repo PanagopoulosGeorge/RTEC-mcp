@@ -1,0 +1,27 @@
+# Hard SDF — the deepest interval algebra in the domain: a pairwise (vpair)
+# fluent combining a proximity input fluent with per-vessel low-speed/stopped
+# evidence (union_all per vessel, intersect_all across the pair), excluding
+# near-port and near-coast time (relative_complement_all), then a minimum
+# duration (intDurGreater). Sparse in any single window — exercises the loop's
+# weakest spot.
+domain: msa
+fluent_name: rendezVous
+fluent_type: SDF
+nl_spec: >
+  A rendezVous is two vessels meeting at sea away from shore. It holds when two
+  vessels (neither a tug nor a pilot vessel) are close to each other while both
+  are moving slowly or stopped far from ports, and this co-occurs away from any
+  nearPorts or nearCoast area, for longer than the rendezvous minimum duration.
+event_stream_ref: examples/maritime/dataset/csv/brest_critical.csv
+ground_truth_file: rendezVous.gt.txt
+window:
+  start_time: 1443650400
+  end_time: 1443686400
+  window_size: 36000
+  step: 36000
+domain_facts: []
+prerequisite_fluents:
+  - proximity
+  - lowSpeed
+  - stopped
+  - withinArea
