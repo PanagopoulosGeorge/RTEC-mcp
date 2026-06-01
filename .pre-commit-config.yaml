@@ -1,0 +1,18 @@
+# Pre-commit hooks for the rtec_llm AI layer.
+# Engine files under src/ and execution scripts/ are deliberately not linted here.
+repos:
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.6.9
+    hooks:
+      - id: ruff
+        args: [--fix]
+        files: ^rtec_llm/
+      - id: ruff-format
+        files: ^rtec_llm/
+
+  - repo: https://github.com/pre-commit/mirrors-mypy
+    rev: v1.11.2
+    hooks:
+      - id: mypy
+        files: ^rtec_llm/
+        additional_dependencies: []
