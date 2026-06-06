@@ -1,0 +1,63 @@
+# Vocabulary for the voting protocol
+
+events:
+  - propose(Agent, Motion)      # Agent proposes a motion
+  - second(Agent, Motion)       # Agent seconds a motion
+  - vote(Agent, Motion, Vote)   # Agent votes aye/nay on motion
+  - close_ballot(Agent, Motion) # Agent closes ballot for motion
+  - declare(Agent, Motion, Outcome)  # Agent declares outcome
+
+simple_fluents:
+  - status(Motion)      # null, proposed, voting, voted
+  - voted(Voter, Motion)  # aye, nay, null
+  - outcome(Motion)     # carried, not_carried
+  - auxPerCloseBallot(Motion)  # auxiliary for permission timing
+  - per(close_ballot(Chair, Motion))  # permission to close
+  - obl(declare(Chair, Motion, Outcome))  # obligation to declare
+  - sanctioned(Chair)   # sanction for violations
+
+sd_fluents:
+  - pow(propose(Agent, Motion))  # power to propose
+  - pow(second(Agent, Motion))   # power to second
+  - pow(vote(Voter, Motion))     # power to vote
+  - pow(close_ballot(Chair, Motion))  # power to close
+  - pow(declare(Chair, Motion))  # power to declare
+
+entities:
+  person: []  # dynamic, derived from input events
+  motion: ["1", "2", "3", "4", "5", "6", "7", "8", "9", "10"]
+  role: ["chair", "voter"]
+  vote_value: ["aye", "nay"]
+  outcome_value: ["carried", "not_carried"]
+  status_value: ["null", "proposed", "voting", "voted"]
+
+# Background predicates needed
+background_predicates:
+  - role_of(Agent, Role)  # Agent has Role (chair/voter)
+  - queryMotion(Motion)   # Motions to track
+
+# Deadlines (fi = force initiation after time)
+deadlines:
+  - "status(M)=proposed → status(M)=null after 10 time units"
+  - "status(M)=voting → status(M)=voted after 10 time units"
+  - "status(M)=voted → status(M)=null after 10 time units"
+
+# Key patterns to express
+patterns:
+  status_lifecycle: |
+    A motion starts as null.
+    When proposed, status becomes 'proposed'.
+    When seconded, status becomes 'voting'.
+    When ballot closed by chair, status becomes 'voted'.
+    When chair declares outcome, status returns to 'null'.
+  
+  voting_rules: |
+    Votes are recorded when status is 'voting'.
+    Chair can close ballot after sufficient voting time.
+    Outcome is 'carried' if aye votes >= nay votes.
+    
+  power_definitions: |
+    Power to propose when status is null.
+    Power to second when status is proposed.
+    Power to vote when status is voting.
+    Power to close/declare when status is voting/voted.

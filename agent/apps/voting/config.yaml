@@ -1,0 +1,24 @@
+# Configuration for the voting application
+# Based on examples/voting
+
+window_size: 100
+step: 100
+start_time: 0
+end_time: 1000
+clock_tick: 1
+
+# Description
+description: |
+  A voting protocol where agents can propose motions, second them,
+  vote (aye/nay), close the ballot, and declare outcomes.
+  
+  Protocol flow: propose → second → vote(s) → close_ballot → declare
+  
+  Key concepts:
+  - status(M): null → proposed → voting → voted → null
+  - voted(V,M): tracks each voter's vote on a motion
+  - outcome(M): carried or not_carried
+  - Institutional power (pow): when actions have effect
+  - Permission (per): when actions are allowed
+  - Obligation (obl): duties that arise
+  - Sanction: consequences of violations

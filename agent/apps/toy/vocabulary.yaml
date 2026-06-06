@@ -1,0 +1,36 @@
+# Vocabulary for the toy domain
+
+events:
+  - win_lottery(Person)    # Person wins the lottery
+  - lose_wallet(Person)    # Person loses their wallet
+  - go_to(Person, Place)   # Person goes to a place
+
+simple_fluents:
+  - rich(Person)           # Person is rich (true/false, default false)
+  - location(Person)       # Person's location (home/pub/work)
+
+sd_fluents:
+  - happy(Person)          # Person is happy = rich OR at pub
+
+entities:
+  person: ["chris"]
+  place: ["home", "pub", "work"]
+
+# Background predicates
+background_predicates:
+  - person(Person)         # Available persons
+  - place(Place)           # Available places
+
+# Key patterns to express
+patterns:
+  rich_lifecycle: |
+    rich(X)=true is initiated when win_lottery(X) happens.
+    rich(X)=true is terminated when lose_wallet(X) happens.
+  
+  location_tracking: |
+    location(X)=Y is initiated when go_to(X, Y) happens.
+  
+  happy_definition: |
+    happy(X)=true holds during union of:
+    - intervals where rich(X)=true
+    - intervals where location(X)=pub

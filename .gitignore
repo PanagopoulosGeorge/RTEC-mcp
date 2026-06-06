@@ -26,3 +26,30 @@ build/*
 dist/*
 docs/old.md
 unit-tests/compiler-tests/tests.*/rules_compiled_c.prolog
+.env
+
+# Python cache
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+*.egg-info/
+*.egg
+
+# Virtual environments
+.venv/
+venv/
+ENV/
+
+# Agent generated files
+agent/apps/*/generated_rules*.prolog
+agent/apps/*/*_compiled.prolog
+agent/apps/*/gold_intervals.txt
+agent/apps/*/results/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo

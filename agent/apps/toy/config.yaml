@@ -1,0 +1,19 @@
+# Configuration for the toy application
+# Based on examples/toy
+
+window_size: 10
+step: 10
+start_time: 0
+end_time: 30
+clock_tick: 1
+
+# Description
+description: |
+  A simple toy domain demonstrating RTEC basics.
+  
+  Scenario: Chris wins the lottery, goes to places, loses wallet.
+  
+  Key concepts:
+  - rich(X): simple fluent, initiated by win_lottery, terminated by lose_wallet
+  - location(X): simple fluent, tracks where someone is (home/pub/work)
+  - happy(X): SD fluent, true when rich OR at pub (union)
