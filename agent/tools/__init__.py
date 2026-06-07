@@ -89,13 +89,18 @@ TOOL_DEFINITIONS = [
         "type": "function",
         "function": {
             "name": "compare_to_gold",
-            "description": "Compare current recognition results to gold standard intervals. Returns F1 score and interval differences (false positives, false negatives).",
+            "description": "Compare current recognition results to gold standard intervals. Returns F1 score and interval differences (false positives, false negatives). Pass `fluents` to scope the score (and convergence) to only the fluent(s) the user asked for; omit it to evaluate the whole event description.",
             "parameters": {
                 "type": "object",
                 "properties": {
                     "app": {
                         "type": "string",
                         "description": "Application name"
+                    },
+                    "fluents": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                        "description": "Optional fluent names to scope the comparison to, e.g. [\"rich\"]. Only these fluents count toward per_fluent, diffs, and the F1 used for convergence. Omit to evaluate every fluent in the gold standard."
                     }
                 },
                 "required": ["app"]

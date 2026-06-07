@@ -12,7 +12,7 @@ Generate RTEC rules for the "{{APP}}" application that match the expected behavi
 2. **Learn the syntax**: Call `get_syntax_docs()` to review RTEC constructs
 3. **Generate rules**: Write Prolog rules using the appropriate constructs
 4. **Test compilation**: Call `compile_rules()` to check for syntax errors
-5. **Evaluate behavior**: Call `run_rtec()` then `compare_to_gold()` to measure F1 score
+5. **Evaluate behavior**: Call `run_rtec()` then `compare_to_gold()` to measure F1 score. If the user asked for specific fluent(s), pass them as `fluents` (e.g. `compare_to_gold("{{APP}}", ["rich"])`) so the score and convergence are scoped to the request.
 6. **Iterate**: Use the feedback (missing/spurious intervals) to refine rules
 
 ## Key RTEC Concepts
@@ -112,6 +112,12 @@ Always provide the COMPLETE rule set including:
 - Rules for the target fluent
 - Rules for ALL dependent fluents (simple fluents that SD fluents reference)
 - All grounding declarations
+
+## Scope Evaluation to What Was Requested
+
+If the user asks you to build **specific fluent(s)** (e.g. "generate the fluent for rich"), pass those names as `fluents` to `compare_to_gold` so only they count toward the F1 and convergence. Do NOT chase false-negatives for fluents the user did not ask about — that is expected when you scope correctly.
+
+Note this is independent of the compile rule above: if a requested fluent is an SD fluent, you still must compile its dependency fluents (they are needed to compute its intervals), but you only **evaluate** the requested fluent. If the user asks for the whole description (or names nothing specific), omit `fluents` and evaluate everything.
 
 ## NEVER Stop Until F1 >= 0.95
 

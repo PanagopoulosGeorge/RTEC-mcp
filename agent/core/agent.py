@@ -54,7 +54,7 @@ class RTECAgent:
             "get_vocabulary": lambda app, **_: get_vocabulary(app).model_dump_json(),
             "compile_rules": lambda app, rules, **_: compile_rules(app, rules).model_dump_json(),
             "run_rtec": lambda app, **_: json.dumps([r.model_dump() for r in run_rtec(app)]),
-            "compare_to_gold": lambda app, **_: compare_to_gold(app).model_dump_json(),
+            "compare_to_gold": lambda app, fluents=None, **_: compare_to_gold(app, fluents).model_dump_json(),
             "generate_gold": lambda app, **_: generate_gold(app),
         }
     
@@ -217,7 +217,7 @@ class RTECAgent:
                     nudge = (
                         "You must call compile_rules() to make progress. "
                         "IMPORTANT: Include ALL rules in one compile call - "
-                        "rules for the target fluent AND all dependent fluents (rich, location). "
+                        "rules for the target fluent AND every fluent it depends on. "
                         "Each compile_rules() REPLACES all previous rules."
                     )
                     messages.append({"role": "user", "content": nudge})

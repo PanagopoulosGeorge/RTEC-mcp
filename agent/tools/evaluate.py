@@ -100,13 +100,18 @@ def get_timepoints(intervals: list[tuple[int, int]]) -> int:
     return sum(e - s for s, e in intervals)
 
 
-def compare_to_gold(app: str) -> EvalReport:
+def compare_to_gold(app: str, fluents: list[str] | None = None) -> EvalReport:
     """
     Compare current recognition results to gold standard.
-    
+
     Args:
         app: Application name
-        
+        fluents: Optional list of fluent names to scope the comparison to
+            (e.g. ["rich"]). When provided, only these fluents contribute to
+            per_fluent, diffs, and the micro/macro F1 — so a request for one
+            fluent converges as soon as that fluent is correct. When None,
+            the whole event description is evaluated.
+
     Returns:
         EvalReport with F1 scores and interval differences
     """
@@ -144,7 +149,11 @@ def compare_to_gold(app: str) -> EvalReport:
     total_tp = total_fp = total_fn = 0
     
     all_keys = set(gold_grouped.keys()) | set(gen_grouped.keys())
-    
+
+    if fluents:
+        wanted = set(fluents)
+        all_keys = {(f, v) for (f, v) in all_keys if f in wanted}
+
     for fluent, value in all_keys:
         tp = fp = fn = 0
         fp_intervals = []
