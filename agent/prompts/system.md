@@ -113,6 +113,10 @@ Always provide the COMPLETE rule set including:
 - Rules for ALL dependent fluents (simple fluents that SD fluents reference)
 - All grounding declarations
 
+If you are unsure what you previously compiled, call `read_rules(app)` to read back your
+current `generated_rules.prolog` before composing the next compile call, so you do not
+accidentally drop a fluent. (This returns only YOUR rules — not the gold/expert rules.)
+
 ## Scope Evaluation to What Was Requested
 
 If the user asks you to build **specific fluent(s)** (e.g. "generate the fluent for rich"), pass those names as `fluents` to `compare_to_gold` so only they count toward the F1 and convergence. Do NOT chase false-negatives for fluents the user did not ask about — that is expected when you scope correctly.

@@ -4,14 +4,16 @@ from .compile import compile_rules
 from .execute import run_rtec
 from .evaluate import compare_to_gold, generate_gold
 from .registry import get_vocabulary, get_syntax_docs, load_app, list_apps
+from .inspect import read_rules
 
 __all__ = [
     "compile_rules",
-    "run_rtec", 
+    "run_rtec",
     "compare_to_gold",
     "generate_gold",
     "get_vocabulary",
     "get_syntax_docs",
+    "read_rules",
     "load_app",
     "list_apps",
 ]
@@ -118,6 +120,74 @@ TOOL_DEFINITIONS = [
                     "app": {
                         "type": "string",
                         "description": "Application name"
+                    }
+                },
+                "required": ["app"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "read_rules",
+            "description": "Read back the rules you most recently compiled (generated_rules.prolog). Useful before a new compile_rules() call to recall every fluent you defined, since compile_rules() REPLACES the whole rule set. Returns an error if you have not compiled anything yet.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "app": {
+                        "type": "string",
+                        "description": "Application name"
+                    }
+                },
+                "required": ["app"]
+            }
+        }
+    }
+]
+
+
+# Read-only tools for the QA agent. These never compile or mutate an app.
+QA_TOOL_DEFINITIONS = [
+    TOOL_DEFINITIONS[0],  # get_syntax_docs
+    TOOL_DEFINITIONS[1],  # get_vocabulary
+    {
+        "type": "function",
+        "function": {
+            "name": "read_rules",
+            "description": "Read the actual Prolog rules for an app. Use to explain how a fluent is defined or why it holds.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "app": {
+                        "type": "string",
+                        "description": "Application name"
+                    },
+                    "source": {
+                        "type": "string",
+                        "enum": ["expert", "generated"],
+                        "description": "Which rules to read: 'expert' (ground truth, default) or 'generated' (agent output)."
+                    }
+                },
+                "required": ["app"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "recognize",
+            "description": "Run RTEC and return the time intervals during which each fluent holds. Use this to answer 'when does X hold?' questions.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "app": {
+                        "type": "string",
+                        "description": "Application name"
+                    },
+                    "source": {
+                        "type": "string",
+                        "enum": ["expert", "generated"],
+                        "description": "Which rules to run: 'expert' (ground truth, default) or 'generated' (agent output)."
                     }
                 },
                 "required": ["app"]

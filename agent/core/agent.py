@@ -13,6 +13,7 @@ from ..tools import (
     generate_gold,
     get_vocabulary,
     get_syntax_docs,
+    read_rules,
 )
 from .schemas import AgentState, AgentMessage, ToolCall, EvalReport
 
@@ -56,6 +57,8 @@ class RTECAgent:
             "run_rtec": lambda app, **_: json.dumps([r.model_dump() for r in run_rtec(app)]),
             "compare_to_gold": lambda app, fluents=None, **_: compare_to_gold(app, fluents).model_dump_json(),
             "generate_gold": lambda app, **_: generate_gold(app),
+            # Builder may only read its own output, never the expert answer key.
+            "read_rules": lambda app, **_: read_rules(app, "generated"),
         }
     
     def _get_system_prompt(self, app: str) -> str:
@@ -126,13 +129,34 @@ class RTECAgent:
             Final AgentState
         """
         state = AgentState(app=app)
-        
+
         # Build initial messages
         messages = [
             {"role": "system", "content": self._get_system_prompt(app)},
-            {"role": "user", "content": user_message}
         ]
-        
+
+        # Seed with any rules from previous runs so sequential requests
+        # ACCUMULATE instead of overwriting. compile_rules() REPLACES the whole
+        # file, and each run() is a cold start with no memory, so without this a
+        # follow-up like "generate the fluent for location" would silently drop
+        # the "rich" fluent generated in an earlier run.
+        try:
+            existing = read_rules(app, "generated")
+            messages.append({
+                "role": "system",
+                "content": (
+                    "The following rules already exist in generated_rules.prolog "
+                    "from previous work. Unless the user explicitly asks you to "
+                    "change or remove them, you MUST carry them over verbatim into "
+                    "your next compile_rules() call alongside any new rules, because "
+                    "compile_rules() REPLACES the entire file:\n\n" + existing
+                ),
+            })
+        except Exception:
+            pass  # No prior generated rules yet — nothing to preserve.
+
+        messages.append({"role": "user", "content": user_message})
+
         state.messages.append(AgentMessage(role="user", content=user_message))
         
         # ReAct loop

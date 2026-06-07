@@ -9,6 +9,8 @@ import json
 
 from .config import AgentConfig, APPS_DIR
 from .core.agent import RTECAgent
+from .core.qa_agent import QAAgent
+from .core.session import RouterSession
 from .tools import generate_gold, get_vocabulary, list_apps, get_syntax_docs
 
 
@@ -200,6 +202,136 @@ def run(app: str, request: str, model: str, max_iter: int):
     elif state.last_eval:
         console.print(f"[yellow]📊 Final F1 = {state.last_eval.micro_f1:.3f}[/yellow]")
         console.print(state.last_eval.summary())
+
+
+def _make_qa_agent(model: str, max_iter: int, verbose: bool) -> QAAgent:
+    config = AgentConfig(model=model, max_iterations=max_iter)
+    if verbose:
+        return QAAgent(
+            config=config,
+            on_tool_call=print_tool_call,
+            on_tool_result=print_tool_result,
+        )
+    return QAAgent(config=config)
+
+
+@cli.command()
+@click.argument('app')
+@click.argument('question')
+@click.option('--model', default='gpt-4o', help='LLM model to use')
+@click.option('--max-iter', default=10, help='Maximum iterations')
+@click.option('--verbose/--quiet', default=True, help='Show tool calls')
+def ask(app: str, question: str, model: str, max_iter: int, verbose: bool):
+    """Ask a one-off question about an app's event description (read-only QA)."""
+    agent = _make_qa_agent(model, max_iter, verbose)
+    console.print(f"[bold]Question:[/bold] {question}\n")
+    answer = agent.ask(app, question)
+    console.print(Panel(Markdown(answer or "_(no answer)_"),
+                        title="💬 Answer", border_style="cyan"))
+
+
+@cli.command(name='qa')
+@click.argument('app')
+@click.option('--model', default='gpt-4o', help='LLM model to use')
+@click.option('--max-iter', default=10, help='Maximum iterations')
+@click.option('--verbose/--quiet', default=True, help='Show tool calls')
+def qa(app: str, model: str, max_iter: int, verbose: bool):
+    """Interactive read-only QA session about an app (no rule generation)."""
+    agent = _make_qa_agent(model, max_iter, verbose)
+    config = agent.config
+
+    console.print(Panel(
+        f"Asking about: [bold]{app}[/bold]\n"
+        f"Model: {config.model}\n\n"
+        "Ask a question, or 'quit' to exit.",
+        title="💬 RTEC QA",
+        border_style="cyan"
+    ))
+
+    history = [{"role": "system", "content": agent._get_system_prompt(app)}]
+    while True:
+        try:
+            user_input = console.input("\n[bold green]You:[/bold green] ").strip()
+            if user_input.lower() in ('quit', 'exit', 'q'):
+                console.print("[yellow]Goodbye![/yellow]")
+                break
+            if not user_input:
+                continue
+            console.print()
+            answer = agent.ask(app, user_input, history=history)
+            console.print(Panel(Markdown(answer or "_(no answer)_"),
+                                title="💬 Answer", border_style="cyan"))
+        except KeyboardInterrupt:
+            console.print("\n[yellow]Interrupted. Type 'quit' to exit.[/yellow]")
+        except Exception as e:
+            console.print(f"[red]Error: {e}[/red]")
+
+
+@cli.command()
+@click.argument('app')
+@click.option('--model', default='gpt-4o', help='LLM model to use')
+@click.option('--max-iter', default=10, help='Maximum iterations')
+@click.option('--verbose/--quiet', default=True, help='Show thinking/tool calls')
+def session(app: str, model: str, max_iter: int, verbose: bool):
+    """Unified session: auto-routes between the builder and QA agents.
+
+    Just talk naturally — questions go to the QA agent, rule-building requests
+    go to the builder. Force a route with a /build or /ask prefix.
+    """
+    config = AgentConfig(model=model, max_iterations=max_iter)
+    if verbose:
+        sess = RouterSession(
+            app, config,
+            on_thinking=print_thinking,
+            on_tool_call=print_tool_call,
+            on_tool_result=print_tool_result,
+        )
+    else:
+        sess = RouterSession(app, config)
+
+    console.print(Panel(
+        f"App: [bold]{app}[/bold]   Model: {model}\n\n"
+        "Talk naturally — I route each message to the right agent.\n"
+        "Force a route with [bold]/build[/bold] or [bold]/ask[/bold]. "
+        "'quit' to exit.",
+        title="🤖 RTEC Session (builder + QA)",
+        border_style="cyan"
+    ))
+
+    while True:
+        try:
+            user_input = console.input("\n[bold green]You:[/bold green] ").strip()
+            if user_input.lower() in ('quit', 'exit', 'q'):
+                console.print("[yellow]Goodbye![/yellow]")
+                break
+            if not user_input:
+                continue
+
+            console.print()
+            result = sess.dispatch(user_input)
+
+            tag = "forced" if result.forced else "auto"
+            console.print(f"[dim]→ routed to {result.route} ({tag})[/dim]")
+
+            if result.route == "build":
+                state = result.state
+                if state and state.converged:
+                    console.print(
+                        f"[bold green]✅ Converged! F1 = "
+                        f"{state.last_eval.micro_f1:.3f}[/bold green]")
+                elif state and state.last_eval:
+                    console.print(
+                        f"[yellow]📊 Current F1 = "
+                        f"{state.last_eval.micro_f1:.3f}[/yellow]")
+            else:
+                console.print(Panel(
+                    Markdown(result.answer or "_(no answer)_"),
+                    title="💬 Answer", border_style="cyan"))
+
+        except KeyboardInterrupt:
+            console.print("\n[yellow]Interrupted. Type 'quit' to exit.[/yellow]")
+        except Exception as e:
+            console.print(f"[red]Error: {e}[/red]")
 
 
 if __name__ == "__main__":
