@@ -1,15 +1,19 @@
 # Vocabulary for the toy domain
+#
+# The fluent list below is intentionally UNCLASSIFIED: the translator
+# (stage 1) decides whether each fluent is simple or statically-determined
+# from the natural-language request, not from a pre-existing label.
+# Pre-classifying them here would leak the answer the builder is
+# supposed to derive.
 
 events:
   - win_lottery(Person)    # Person wins the lottery
   - lose_wallet(Person)    # Person loses their wallet
   - go_to(Person, Place)   # Person goes to a place; Place ∈ {home, pub, work}
 
-simple_fluents:
+fluents:
   - rich(Person)           # Person is rich (boolean: true/false)
   - location(Person)       # Person's current location (place: home/pub/work)
-
-sd_fluents:
   - happy(Person)          # Person is happy = rich OR at pub
 
 # Background predicates (consulted at run time — not part of the signature)

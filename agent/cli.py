@@ -109,8 +109,7 @@ def vocab(app: str):
         v = get_vocabulary(app)
         console.print(Panel(
             f"[bold]Events:[/bold] {', '.join(v.events)}\n"
-            f"[bold]Simple Fluents:[/bold] {', '.join(v.simple_fluents)}\n"
-            f"[bold]SD Fluents:[/bold] {', '.join(v.sd_fluents)}",
+            f"[bold]Fluents:[/bold] {', '.join(v.fluents)}",
             title=f"Vocabulary: {app}"
         ))
     except Exception as e:

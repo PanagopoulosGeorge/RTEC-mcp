@@ -63,10 +63,18 @@ class EvalReport(BaseModel):
 
 
 class Vocabulary(BaseModel):
-    """Available vocabulary for an application."""
+    """Available vocabulary for an application.
+
+    The signature is intentionally **flat**: events are listed separately, but
+    fluents are a single unclassified list. The translator (stage 1) decides
+    whether each fluent is simple or statically determined from the natural
+    language request — we do NOT pre-classify them in the signature, because
+    that would leak the answer the builder agent is supposed to derive.
+    """
     events: list[str] = Field(default_factory=list)
-    simple_fluents: list[str] = Field(default_factory=list)
-    sd_fluents: list[str] = Field(default_factory=list)
+    # Flat list of every fluent symbol the domain exposes. The order or
+    # grouping carries no semantics — do not infer "simple" vs "SD" from it.
+    fluents: list[str] = Field(default_factory=list)
     entities: dict[str, list[str]] = Field(default_factory=dict)  # type -> values
     thresholds: dict[str, int | float] = Field(default_factory=dict)
     # Optional domain examples shown to the stage-1 parser (NL descriptions of

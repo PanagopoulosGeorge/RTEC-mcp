@@ -25,13 +25,18 @@ def _bare(name: str) -> str:
 
 
 def _signature_text(vocab: Vocabulary) -> str:
-    """Render the vocabulary as the signature block shown to the parser."""
+    """Render the vocabulary as the signature block shown to the parser.
+
+    The signature is intentionally a flat list of fluent symbols. The
+    parser is responsible for deciding whether each one is simple or
+    statically-determined in the context of the current request — we do
+    NOT pre-classify them, because doing so would leak the answer the
+    builder agent is supposed to derive.
+    """
     lines = ["Events (instantaneous):"]
     lines += [f"  - {e}" for e in vocab.events] or ["  (none)"]
-    lines.append("Simple fluents (durative, set by events):")
-    lines += [f"  - {f}" for f in vocab.simple_fluents] or ["  (none)"]
-    lines.append("SD fluents (durative, derived from other fluents):")
-    lines += [f"  - {f}" for f in vocab.sd_fluents] or ["  (none)"]
+    lines.append("Fluents (durative; kind decided by the parser from the NL):")
+    lines += [f"  - {f}" for f in vocab.fluents] or ["  (none)"]
     # Entity values are optional — large domains (maritime) don't enumerate them.
     if vocab.entities:
         lines.append("Entity values:")
@@ -76,32 +81,42 @@ def _is_prolog_var(s: str) -> bool:
     return bool(s) and (s[0].isupper() or s.startswith("_"))
 
 
-def _known(vocab: Vocabulary) -> tuple[set[str], set[str], set[str], set[str] | None]:
-    """Return (event names, simple-fluent names, sd-fluent names, entity values | None).
+def _known(vocab: Vocabulary) -> tuple[set[str], set[str], set[str] | None]:
+    """Return (event names, fluent names, entity values | None).
 
-    Entity values is None when vocab.entities is empty, which signals that value
-    validation should be skipped (domain too large to enumerate, e.g. maritime).
+    Fluents are exposed as a single unclassified set — the parser picks
+    the kind from the NL, not from a pre-baked classification.
+
+    Entity values is None when vocab.entities is empty, which signals that
+    value validation should be skipped (domain too large to enumerate,
+    e.g. maritime).
     """
     events = {_bare(e) for e in vocab.events}
-    simple = {_bare(f) for f in vocab.simple_fluents}
-    sd = {_bare(f) for f in vocab.sd_fluents}
+    fluents = {_bare(f) for f in vocab.fluents}
     if vocab.entities:
         values: set[str] | None = {v for vals in vocab.entities.values() for v in vals}
         values |= {"true", "false"}
     else:
         values = None  # skip value checking — entity domain not enumerated
-    return events, simple, sd, values
+    return events, fluents, values
 
 
 def _validate(spec: FluentSpec, vocab: Vocabulary) -> TranslationResult:
     """Check every symbol the spec references exists in the signature.
 
-    Fluent and event names are always validated. Concrete value strings (e.g.
-    'pub', 'nearPorts') are only validated when vocab.entities is populated;
-    if entities is absent the check is skipped with a soft warning so that
-    large or dynamic domains (maritime) don't need to enumerate all values.
+    Fluent and event names are always validated. Concrete value strings
+    (e.g. 'pub', 'nearPorts') are only validated when vocab.entities is
+    populated; if entities is absent the check is skipped with a soft
+    warning so that large or dynamic domains (maritime) don't need to
+    enumerate all values.
+
+    The validator does NOT pre-judge whether a fluent is simple or SD —
+    that decision was made by the LLM when it produced the spec, and
+    overwriting it from the signature would defeat the whole point of
+    the flat-fluents refactor. We only check structural validity
+    (definition present for SD, initiator present for simple).
     """
-    events, simple, sd, values = _known(vocab)
+    events, fluents, values = _known(vocab)
     errors: list[str] = []
     warnings: list[str] = []
 
@@ -111,8 +126,11 @@ def _validate(spec: FluentSpec, vocab: Vocabulary) -> TranslationResult:
             "strings will not be validated against the domain"
         )
 
-    # The target may be a fluent we are about to create; missing is a soft note.
-    if _bare(spec.target) not in (simple | sd):
+    # The target fluent may be one we are about to create; if it isn't in
+    # the flat signature, raise a soft note (not a hard error) so the
+    # builder is free to define new output fluents in the simple/SD split
+    # of its own choosing.
+    if _bare(spec.target) not in fluents:
         warnings.append(
             f"target fluent '{spec.target}' is not declared in the vocabulary"
         )
@@ -122,10 +140,11 @@ def _validate(spec: FluentSpec, vocab: Vocabulary) -> TranslationResult:
             errors.append("sd_fluent has no definition/operands")
         else:
             for c in spec.definition.operands:
-                if _bare(c.fluent) not in (simple | sd):
+                if _bare(c.fluent) not in fluents:
                     errors.append(f"unknown fluent referenced: '{c.fluent}'")
-                # Prolog variables (uppercase / underscore) are always valid as
-                # value placeholders (e.g. location(X)=Y, stopped(V)=_Status).
+                # Prolog variables (uppercase / underscore) are always
+                # valid as value placeholders (e.g. location(X)=Y,
+                # stopped(V)=_Status).
                 if (
                     values is not None
                     and not _is_prolog_var(c.value)

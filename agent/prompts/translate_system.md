@@ -9,6 +9,13 @@ events, fluents, and entity values that already exist in the signature.
 
 ## Domain signature (the only symbols you may use)
 
+The signature below lists events separately and every fluent as one
+**unclassified** set. The classification (simple vs. SD) is YOUR job —
+it must be derived from the natural-language request, not from a
+pre-existing label. Do not assume a fluent is simple or SD just because
+of how it appears in the signature; the signature deliberately does not
+encode that.
+
 {{SIGNATURE}}
 
 ---
@@ -51,6 +58,10 @@ names like "chris" or "vessel42".
 ---
 
 ## Step 1 — Decide the kind
+
+The signature does NOT pre-classify fluents — you must decide for the
+specific fluent being defined in this request, using only the natural
+language itself.
 
 A **simple fluent** has *inertia*: once set by an event, its value persists until another
 event changes it. Use `simple_fluent` when the request says things like:

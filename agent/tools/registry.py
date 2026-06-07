@@ -56,45 +56,43 @@ def get_vocabulary(app: str) -> Vocabulary:
 
 
 def _extract_vocabulary_from_rules(rules_file: Path) -> Vocabulary:
-    """Extract vocabulary by parsing Prolog rules."""
+    """Extract vocabulary by parsing Prolog rules.
+
+    The extracted signature is intentionally flat: we collect every fluent
+    symbol that appears as a head of `initiatedAt`, `terminatedAt`, or
+    `holdsFor` and merge them into a single unclassified set. Whether a
+    fluent is simple or statically-determined is the translator's decision
+    to make, not a fact we want to pre-record in the signature.
+    """
     import re
-    
+
     events = set()
-    simple_fluents = set()
-    sd_fluents = set()
+    fluents = set()
     entities = {}
-    
+
     with open(rules_file) as f:
         content = f.read()
-    
+
     # Extract events from happensAt
     for match in re.finditer(r'happensAt\((\w+)\(', content):
         events.add(match.group(1))
-    
-    # Extract simple fluents from initiatedAt/terminatedAt
-    for match in re.finditer(r'initiatedAt\((\w+)\(', content):
-        simple_fluents.add(match.group(1))
-    for match in re.finditer(r'terminatedAt\((\w+)\(', content):
-        simple_fluents.add(match.group(1))
-    
-    # Extract SD fluents from holdsFor (definitions, not uses)
-    for match in re.finditer(r'^holdsFor\((\w+)\(', content, re.MULTILINE):
-        sd_fluents.add(match.group(1))
-    
+
+    # Extract fluents from any of the three rule heads — classification is
+    # the translator's job, so we don't split them here.
+    for head in ("initiatedAt", "terminatedAt", "holdsFor"):
+        for match in re.finditer(rf'{head}\((\w+)\(', content):
+            fluents.add(match.group(1))
+
     # Extract entities from grounding/1
     for match in re.finditer(r'grounding\(.*\) :- (\w+)\((\w+)\)', content):
         entity_type = match.group(1)
         if entity_type not in entities:
             entities[entity_type] = []
-    
-    # Remove simple fluents from SD fluents (if defined with both)
-    sd_fluents -= simple_fluents
-    
+
     return Vocabulary(
         events=sorted(events),
-        simple_fluents=sorted(simple_fluents),
-        sd_fluents=sorted(sd_fluents),
-        entities=entities
+        fluents=sorted(fluents),
+        entities=entities,
     )
 
 
@@ -170,23 +168,35 @@ grounding(event(X, Y)) :- domain1(X), domain2(Y).
 index(event(X, Y), Y).
 ```
 
-## Example: Rich Person
+## Example: minimal simple fluent (no domain leakage)
 
 ```prolog
-% Events
-event(win_lottery/1).
-event(lose_wallet/1).
+% Declarations
+event(some_event/1).
+simpleFluent(some_fluent/1).
 
-% Simple fluent: rich
-simpleFluent(rich/1).
+% Initiation
+initiatedAt(some_fluent(X)=true, T) :-
+    happensAt(some_event(X), T).
 
-initiatedAt(rich(X)=true, T) :-
-    happensAt(win_lottery(X), T).
-
-terminatedAt(rich(X)=true, T) :-
-    happensAt(lose_wallet(X), T).
+% Termination
+terminatedAt(some_fluent(X)=true, T) :-
+    happensAt(some_other_event(X), T).
 
 % Grounding
-grounding(rich(X)=true) :- person(X).
+grounding(some_fluent(X)=true) :- entity(X).
+```
+
+## Example: minimal SD fluent (no domain leakage)
+
+```prolog
+sDFluent(derived_fluent/1).
+
+holdsFor(derived_fluent(X)=true, I) :-
+    holdsFor(other_fluent(X)=true, I1),
+    holdsFor(another_fluent(X)=value, I2),
+    union_all([I1, I2], I).
+
+grounding(derived_fluent(X)=true) :- entity(X).
 ```
 """

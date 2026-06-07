@@ -47,9 +47,9 @@ holdsFor(fluent(X)=value, I) :-
     intersect_all([I1, I2], I).
 ```
 
-**CRITICAL**: SD fluents reference other fluents via `holdsFor`. If an SD fluent like `happy` references `rich` and `location`, you MUST define rules for `rich` and `location` too!
+**CRITICAL**: SD fluents reference other fluents via `holdsFor`. If an SD fluent references other fluents, you MUST define rules for those fluents too!
 
-Example - SD fluent defined from other fluents:
+Example - SD fluent defined from other fluents (names are illustrative — substitute your domain's symbols):
 ```prolog
 % First define the simple fluents the SD fluent depends on:
 initiatedAt(fluent_a(X)=true, T) :- happensAt(event_a(X), T).
@@ -101,12 +101,12 @@ If you have generated rules, call `compile_rules()`. If compilation succeeds, ca
 Each `compile_rules()` call **REPLACES** the previous rules entirely. You must include ALL fluent definitions in every compile call:
 
 **Wrong approach**:
-1. compile_rules(happy rules) → F1=0
-2. compile_rules(rich + location rules) → F1=0 (happy rules are now missing!)
+1. compile_rules(target fluent only) → F1=0
+2. compile_rules(dependency fluent only) → F1=0 (target rules are now missing!)
 
 **Correct approach**:
-1. compile_rules(happy rules) → F1=0
-2. compile_rules(happy + rich + location rules) → F1=0.98 ✓
+1. compile_rules(target fluent only) → F1=0
+2. compile_rules(target + all dependency fluents) → F1=0.98 ✓
 
 Always provide the COMPLETE rule set including:
 - Rules for the target fluent

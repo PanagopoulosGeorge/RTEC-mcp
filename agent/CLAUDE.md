@@ -31,10 +31,10 @@ There is no automated test suite here: `agent/tests/` currently contains only st
 
 A free-form request is handled in two decoupled stages so language understanding and Prolog synthesis can fail — and be evaluated — independently:
 
-1. **Stage 1: grounded semantic parser** (`tools/translate.py::translate_request`). NL + the domain *signature* → a typed `FluentSpec` (the IR, in `core/schemas.py`). It is a single OpenAI call (`prompts/translate_system.md`, no ReAct loop) that maps NL phrases onto known vocabulary symbols and connectives ("or"→`union`, "and"→`intersect`, "but not"→`complement`; event-triggered→`simple_fluent`, derived-from-fluents→`sd_fluent`). `_validate` then checks every referenced symbol/value exists in the signature, returning a `TranslationResult` (spec + grounding errors/warnings + a rendered `brief`). The parser never sees the target's definition, so it cannot leak the answer. Gold for this stage is `apps/<app>/gold_specs.yaml`.
+1. **Stage 1: grounded semantic parser** (`tools/translate.py::translate_request`). NL + the domain *signature* → a typed `FluentSpec` (the IR, in `core/schemas.py`). It is a single OpenAI call (`prompts/translate_system.md`, no ReAct loop) that maps NL phrases onto known vocabulary symbols and connectives ("or"→`union`, "and"→`intersect`, "but not"→`complement`) and decides `kind` (`simple_fluent` vs `sd_fluent`) from the NL itself. `_validate` then checks every referenced symbol/value exists in the signature, returning a `TranslationResult` (spec + grounding errors/warnings + a rendered `brief`). The parser never sees the target's definition, so it cannot leak the answer. Gold for this stage is `apps/<app>/gold_specs.yaml`.
 2. **Stage 2: the ReAct convergence loop** below, fed the parser's `brief` instead of the raw sentence.
 
-`cli.py::run` chains them (`--no-translate` skips stage 1); `cli.py::translate` runs stage 1 alone. **Signature vs. specification:** `vocabulary.yaml` holds only the signature (what symbols exist — legitimate input); per-fluent specifications (how each fluent is defined) live in `gold_specs.yaml` as gold, not input. (Note: a worked `happy = rich OR pub` example is still baked into `prompts/system.md` lines ~52–69 — that is residual per-domain leakage for the toy app if you evaluate stage 2 in isolation.)
+`cli.py::run` chains them (`--no-translate` skips stage 1); `cli.py::translate` runs stage 1 alone. **Signature vs. specification:** `vocabulary.yaml` holds only the signature (what symbols exist — legitimate input); per-fluent specifications (how each fluent is defined) live in `gold_specs.yaml` as gold, not input. The fluent list in the signature is deliberately **unclassified** (no `simple_fluents`/`sd_fluents` split) — the translator decides `kind` from the NL, so the signature cannot leak it.
 
 ## Architecture: the ReAct convergence loop
 
@@ -67,7 +67,7 @@ Apps live flat under `agent/apps/<name>/` (toy, voting, maritime), **not** in th
 ```
 agent/apps/<name>/
   config.yaml              # window_size, step, start_time, end_time, clock_tick (+ free-text description)
-  vocabulary.yaml          # SIGNATURE ONLY: events / simple_fluents / sd_fluents / entities (no per-fluent definitions)
+  vocabulary.yaml          # SIGNATURE ONLY: events / fluents (unclassified) / entities / patterns (no per-fluent definitions)
   gold_specs.yaml          # gold for stage 1: example NL request -> expected typed FluentSpec, per fluent
   expert_rules.prolog      # ground-truth rules; source of the gold standard
   expert_rules_compiled.prolog
