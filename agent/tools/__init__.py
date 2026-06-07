@@ -5,6 +5,7 @@ from .execute import run_rtec
 from .evaluate import compare_to_gold, generate_gold
 from .registry import get_vocabulary, get_syntax_docs, load_app, list_apps
 from .inspect import read_rules
+from .translate import translate_request
 
 __all__ = [
     "compile_rules",
@@ -14,6 +15,7 @@ __all__ = [
     "get_vocabulary",
     "get_syntax_docs",
     "read_rules",
+    "translate_request",
     "load_app",
     "list_apps",
 ]

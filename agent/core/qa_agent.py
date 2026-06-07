@@ -21,7 +21,7 @@ from ..tools import (
 )
 
 
-def _recognize(app: str, source: str = "expert") -> str:
+def _recognize(app: str, source: str = "generated") -> str:
     """Run RTEC and serialize the recognised intervals as JSON."""
     recs = run_rtec(app, use_generated=(source == "generated"))
     return json.dumps([r.model_dump() for r in recs])
@@ -53,7 +53,7 @@ class QAAgent:
             "get_syntax_docs": lambda **_: get_syntax_docs(),
             "get_vocabulary": lambda app, **_: get_vocabulary(app).model_dump_json(),
             "read_rules": lambda app, source="expert", **_: read_rules(app, source),
-            "recognize": lambda app, source="expert", **_: _recognize(app, source),
+            "recognize": lambda app, source="generated", **_: _recognize(app, source),
         }
 
     def _get_system_prompt(self, app: str) -> str:

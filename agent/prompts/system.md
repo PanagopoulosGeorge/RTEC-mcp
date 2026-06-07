@@ -49,23 +49,23 @@ holdsFor(fluent(X)=value, I) :-
 
 **CRITICAL**: SD fluents reference other fluents via `holdsFor`. If an SD fluent like `happy` references `rich` and `location`, you MUST define rules for `rich` and `location` too!
 
-Example - if `happy` depends on `rich` OR being at `pub`:
+Example - SD fluent defined from other fluents:
 ```prolog
-% First define the simple fluents that happy depends on:
-initiatedAt(rich(X)=true, T) :- happensAt(win_lottery(X), T).
-terminatedAt(rich(X)=true, T) :- happensAt(lose_wallet(X), T).
-initiatedAt(location(X)=Y, T) :- happensAt(go_to(X, Y), T).
+% First define the simple fluents the SD fluent depends on:
+initiatedAt(fluent_a(X)=true, T) :- happensAt(event_a(X), T).
+terminatedAt(fluent_a(X)=true, T) :- happensAt(event_b(X), T).
+initiatedAt(fluent_b(X)=Y, T) :- happensAt(event_c(X, Y), T).
 
-% Then define the SD fluent using union_all:
-holdsFor(happy(X)=true, I) :-
-    holdsFor(rich(X)=true, I1),
-    holdsFor(location(X)=pub, I2),
+% Then define the SD fluent using interval operations:
+holdsFor(fluent_c(X)=true, I) :-
+    holdsFor(fluent_a(X)=true, I1),
+    holdsFor(fluent_b(X)=value, I2),
     union_all([I1, I2], I).
 
 % Include ALL grounding declarations:
-grounding(rich(X)=true) :- person(X).
-grounding(location(X)=Y) :- person(X), place(Y).
-grounding(happy(X)=true) :- person(X).
+grounding(fluent_a(X)=true) :- entity(X).
+grounding(fluent_b(X)=Y) :- entity(X), value(Y).
+grounding(fluent_c(X)=true) :- entity(X).
 ```
 
 ### Interval Operations

@@ -4,8 +4,35 @@ import subprocess
 import re
 from pathlib import Path
 
-from ..config import RTEC_SCRIPTS, APPS_DIR, REPO_ROOT
+from ..config import RTEC_SCRIPTS, APPS_DIR, REPO_ROOT, RTEC_COMPILER
 from ..core.schemas import Recognition
+
+
+def _compile_rules_file(rules_file: Path, target_compiled: Path) -> None:
+    """Compile a rules file and move compiled output to target path."""
+    result = subprocess.run(
+        [
+            "swipl",
+            "-l",
+            str(RTEC_COMPILER),
+            "-g",
+            f"compileED('{rules_file}', withoutOptimisation), halt.",
+        ],
+        capture_output=True,
+        text=True,
+        timeout=60,
+        cwd=REPO_ROOT,
+    )
+
+    if result.returncode != 0:
+        error_text = result.stderr.strip() or result.stdout.strip()
+        raise RuntimeError(f"RTEC compilation failed: {error_text}")
+
+    compiled_file = rules_file.with_name("compiled_rules.prolog")
+    if not compiled_file.exists():
+        raise RuntimeError("RTEC compilation did not produce compiled_rules.prolog")
+
+    compiled_file.replace(target_compiled)
 
 
 def parse_recognitions(output_file: Path) -> list[Recognition]:
@@ -82,13 +109,25 @@ def run_rtec(app: str, use_generated: bool = True) -> list[Recognition]:
     
     # Determine which rules to use
     if use_generated:
-        rules_file = app_path / "generated_rules_compiled.prolog"
+        compiled_target = app_path / "generated_rules_compiled.prolog"
+        rules_file = compiled_target
         if not rules_file.exists():
-            rules_file = app_path / "generated_rules.prolog"
+            source_rules = app_path / "generated_rules.prolog"
+            if source_rules.exists():
+                _compile_rules_file(source_rules, compiled_target)
+                rules_file = compiled_target
+            else:
+                rules_file = source_rules
     else:
-        rules_file = app_path / "expert_rules_compiled.prolog"
+        compiled_target = app_path / "expert_rules_compiled.prolog"
+        rules_file = compiled_target
         if not rules_file.exists():
-            rules_file = app_path / "expert_rules.prolog"
+            source_rules = app_path / "expert_rules.prolog"
+            if source_rules.exists():
+                _compile_rules_file(source_rules, compiled_target)
+                rules_file = compiled_target
+            else:
+                rules_file = source_rules
     
     if not rules_file.exists():
         raise ValueError(f"Rules file not found: {rules_file}")

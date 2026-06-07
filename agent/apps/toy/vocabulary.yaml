@@ -3,34 +3,32 @@
 events:
   - win_lottery(Person)    # Person wins the lottery
   - lose_wallet(Person)    # Person loses their wallet
-  - go_to(Person, Place)   # Person goes to a place
+  - go_to(Person, Place)   # Person goes to a place; Place ∈ {home, pub, work}
 
 simple_fluents:
-  - rich(Person)           # Person is rich (true/false, default false)
-  - location(Person)       # Person's location (home/pub/work)
+  - rich(Person)           # Person is rich (boolean: true/false)
+  - location(Person)       # Person's current location (place: home/pub/work)
 
 sd_fluents:
   - happy(Person)          # Person is happy = rich OR at pub
 
-entities:
-  person: ["chris"]
-  place: ["home", "pub", "work"]
-
-# Background predicates
+# Background predicates (consulted at run time — not part of the signature)
 background_predicates:
-  - person(Person)         # Available persons
-  - place(Place)           # Available places
+  - person(Person)         # Available persons: chris
+  - place(Place)           # Available places: home, pub, work
 
-# Key patterns to express
+# Fluent task descriptions — one entry per output fluent.
+# Key = fluent name (pass directly to `cli run toy <key>`).
+# Value = natural-language description of when that fluent holds.
 patterns:
-  rich_lifecycle: |
-    rich(X)=true is initiated when win_lottery(X) happens.
-    rich(X)=true is terminated when lose_wallet(X) happens.
-  
-  location_tracking: |
-    location(X)=Y is initiated when go_to(X, Y) happens.
-  
-  happy_definition: |
-    happy(X)=true holds during union of:
-    - intervals where rich(X)=true
-    - intervals where location(X)=pub
+  rich: >
+    Someone becomes rich when they win the lottery.
+    They stop being rich if they lose their wallet.
+
+  location: >
+    Track where a person is at all times.
+    A person's location changes whenever they go somewhere new.
+    Valid places are home, pub, and work.
+
+  happy: >
+    A person is happy as long as they are rich or at the pub.

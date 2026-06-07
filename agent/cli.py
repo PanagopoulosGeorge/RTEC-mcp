@@ -11,7 +11,33 @@ from .config import AgentConfig, APPS_DIR
 from .core.agent import RTECAgent
 from .core.qa_agent import QAAgent
 from .core.session import RouterSession
-from .tools import generate_gold, get_vocabulary, list_apps, get_syntax_docs
+from .tools import (
+    generate_gold,
+    get_vocabulary,
+    list_apps,
+    get_syntax_docs,
+    translate_request,
+)
+
+
+def _resolve_request(app: str, request: str) -> tuple[str, bool]:
+    """Resolve a request string to actual NL text.
+
+    If `request` matches a key in the app's vocabulary patterns, return the
+    corresponding NL description (looked up from vocabulary.yaml). Otherwise
+    return the raw string unchanged.
+
+    Returns:
+        (resolved_text, was_lookup) — was_lookup is True when the request was
+        a pattern key, False when it was passed verbatim.
+    """
+    try:
+        vocab = get_vocabulary(app)
+        if request in vocab.patterns:
+            return vocab.patterns[request].strip(), True
+    except Exception:
+        pass
+    return request, False
 
 
 console = Console()
@@ -112,6 +138,25 @@ def gold(app: str):
 
 @cli.command()
 @click.argument('app')
+@click.argument('request')
+@click.option('--model', default='gpt-4o', help='LLM model to use')
+@click.option('--json', 'as_json', is_flag=True, help='Print the raw spec JSON')
+def translate(app: str, request: str, model: str, as_json: bool):
+    """Parse an NL request into a typed fluent spec (stage 1 only, no building)."""
+    config = AgentConfig(model=model)
+    tr = translate_request(app, request, config)
+    if as_json:
+        console.print_json(tr.model_dump_json(indent=2))
+        return
+    console.print(Panel(
+        tr.summary(),
+        title="🧭 Parsed spec" + ("" if tr.valid else " ⚠"),
+        border_style="cyan" if tr.valid else "red",
+    ))
+
+
+@cli.command()
+@click.argument('app')
 @click.option('--model', default='gpt-4o', help='LLM model to use')
 @click.option('--max-iter', default=10, help='Maximum iterations')
 @click.option('--verbose/--quiet', default=True, help='Show detailed output')
@@ -173,28 +218,108 @@ def chat(app: str, model: str, max_iter: int, verbose: bool):
 
 @cli.command()
 @click.argument('app')
+def tasks(app: str):
+    """List all fluent task descriptions defined in vocabulary.yaml.
+
+    Each entry can be passed directly to 'run' as a pattern key instead of
+    typing out the full NL description.
+
+    \b
+    Example:
+      python -m agent.cli tasks toy
+      python -m agent.cli run toy happy   # uses the 'happy' pattern
+    """
+    try:
+        vocab = get_vocabulary(app)
+    except Exception as e:
+        console.print(f"[red]Error: {e}[/red]")
+        return
+
+    if not vocab.patterns:
+        console.print(
+            f"[yellow]No patterns defined in {app}/vocabulary.yaml.[/yellow]\n"
+            "Add a 'patterns:' block with fluent names as keys and NL "
+            "descriptions as values."
+        )
+        return
+
+    console.print(f"\n[bold]Fluent task descriptions for '{app}':[/bold]\n")
+    for key, description in vocab.patterns.items():
+        console.print(f"  [bold cyan]{key}[/bold cyan]")
+        for line in description.strip().splitlines():
+            console.print(f"    [dim]{line}[/dim]")
+        console.print()
+    console.print(
+        "[dim]Run any of these with: "
+        f"python -m agent.cli run {app} <key>[/dim]"
+    )
+
+
+@cli.command()
+@click.argument('app')
 @click.argument('request')
 @click.option('--model', default='gpt-4o', help='LLM model to use')
 @click.option('--max-iter', default=10, help='Maximum iterations')
-def run(app: str, request: str, model: str, max_iter: int):
-    """Run a single request (non-interactive)."""
-    
+@click.option('--translate/--no-translate', default=True,
+              help='Parse the NL request into a typed spec before building '
+                   '(stage 1). Use --no-translate to pass it through verbatim.')
+def run(app: str, request: str, model: str, max_iter: int, translate: bool):
+    """Run a single request (non-interactive).
+
+    REQUEST may be either a free-form NL sentence or a fluent name that
+    matches a key in the app's vocabulary patterns (vocabulary.yaml).
+    If it matches a pattern key, the stored NL description is used instead.
+
+    \b
+    Examples:
+      python -m agent.cli run toy happy
+      python -m agent.cli run toy "A person is happy as long as they are rich or at the pub"
+    """
+
     config = AgentConfig(
         model=model,
         max_iterations=max_iter,
     )
-    
+
+    # Resolve pattern key → NL description if applicable.
+    nl_request, was_lookup = _resolve_request(app, request)
+    if was_lookup:
+        console.print(
+            f"[dim]→ resolved pattern key [bold]{request!r}[/bold] "
+            f"from vocabulary.yaml[/dim]"
+        )
+        console.print(f"[dim]  {nl_request!r}[/dim]\n")
+
+    # Stage 1: ground the NL request into a typed spec, then hand the builder
+    # the unambiguous brief instead of the raw sentence.
+    builder_request = nl_request
+    if translate:
+        tr = translate_request(app, nl_request, config)
+        console.print(Panel(
+            tr.summary(),
+            title="🧭 Stage 1: parsed spec" + ("" if tr.valid else " ⚠"),
+            border_style="cyan" if tr.valid else "red",
+        ))
+        if tr.spec is None:
+            console.print("[red]Could not parse a spec; aborting.[/red]")
+            return
+        if not tr.valid:
+            console.print(
+                "[yellow]Spec has grounding errors (see above); "
+                "building from it anyway.[/yellow]")
+        builder_request = tr.brief
+
     agent = RTECAgent(
         config=config,
         on_thinking=print_thinking,
         on_tool_call=print_tool_call,
         on_tool_result=print_tool_result,
     )
-    
-    console.print(f"[bold]Running:[/bold] {request}")
+
+    console.print(f"[bold]Running:[/bold] {builder_request}")
     console.print()
-    
-    state = agent.run(app, request)
+
+    state = agent.run(app, builder_request)
     
     console.print()
     if state.converged:
