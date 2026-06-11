@@ -15,7 +15,7 @@ from ..tools import (
     get_syntax_docs,
     read_rules,
 )
-from .schemas import AgentState, AgentMessage, ToolCall, EvalReport
+from .schemas import AgentState, AgentMessage, ToolCall, EvalReport, EvalSnapshotRecord
 
 
 class RTECAgent:
@@ -31,6 +31,8 @@ class RTECAgent:
         on_thinking: Callable[[str], None] | None = None,
         on_tool_call: Callable[[str, dict], None] | None = None,
         on_tool_result: Callable[[str, str], None] | None = None,
+        on_eval: Callable[[int, EvalReport, list[str] | None], None] | None = None,
+        on_iteration: Callable[[int], None] | None = None,
     ):
         """
         Initialize the agent.
@@ -48,6 +50,8 @@ class RTECAgent:
         self.on_thinking = on_thinking or (lambda x: None)
         self.on_tool_call = on_tool_call or (lambda n, a: None)
         self.on_tool_result = on_tool_result or (lambda n, r: None)
+        self.on_eval = on_eval or (lambda i, r, f: None)
+        self.on_iteration = on_iteration or (lambda i: None)
         
         # Tool dispatcher
         self._tools = {
@@ -199,6 +203,41 @@ class RTECAgent:
 
         return "\n".join(lines) if lines else None
 
+    def _record_eval(
+        self,
+        state: AgentState,
+        iteration: int,
+        eval_result: EvalReport,
+        scoped_fluents: list[str] | None,
+    ) -> None:
+        previous_best = (
+            state.eval_history[-1].best_so_far if state.eval_history else 0.0
+        )
+        micro = eval_result.micro_f1
+        # Use micro_f1 per scoped fluent — matches the convergence metric and
+        # avoids min(value-F1s) masking a mostly-working fluent as 0.
+        if scoped_fluents:
+            per_fluent = {f: eval_result.micro_f1 for f in scoped_fluents}
+        else:
+            by_fluent: dict[str, list[float]] = {}
+            for s in eval_result.per_fluent:
+                by_fluent.setdefault(s.fluent, []).append(s.f1)
+            per_fluent = {f: min(vs) for f, vs in by_fluent.items()}
+
+        snap = EvalSnapshotRecord(
+            iteration=iteration,
+            micro_f1=micro,
+            macro_f1=eval_result.macro_f1,
+            per_fluent_f1=per_fluent,
+            scoped_fluents=scoped_fluents,
+            delta=(micro - previous_best) if state.eval_history else None,
+            best_so_far=max(previous_best, micro),
+            improved=micro > previous_best + 1e-9,
+        )
+        state.eval_history.append(snap)
+        state.last_eval = eval_result
+        self.on_eval(iteration, eval_result, scoped_fluents)
+
     def _call_llm(self, messages: list[dict]) -> dict:
         """Call the LLM and return the response."""
         # Reasoning models (o1/o3/o4 series) use max_completion_tokens and do
@@ -311,8 +350,14 @@ class RTECAgent:
                     "The following rules already exist in generated_rules.prolog "
                     "from previous work. Unless the user explicitly asks you to "
                     "change or remove them, you MUST carry them over verbatim into "
-                    "your next compile_rules() call alongside any new rules, because "
-                    "compile_rules() REPLACES the entire file:\n\n" + existing
+                    "your **first** compile_rules() call alongside any new rules, "
+                    "because compile_rules() REPLACES the entire file.\n\n"
+                    "If your new rules use holdsAt(F, ...) or holdsFor(F, ...), every "
+                    "fluent F you reference must appear in that same compile payload — "
+                    "including the rules below. Dropping them causes silent F1 failures "
+                    "(e.g. all gap intervals classified as farFromPorts when withinArea "
+                    "is missing).\n\n"
+                    + existing
                 ),
             })
         except Exception:
@@ -322,9 +367,13 @@ class RTECAgent:
 
         state.messages.append(AgentMessage(role="user", content=user_message))
         
+        last_compare_fluents: list[str] | None = None
+        compiled_since_last_eval = False
+
         # ReAct loop
         while state.iteration < self.config.max_iterations:
             state.iteration += 1
+            self.on_iteration(state.iteration)
             
             # Get LLM response
             response = self._call_llm(messages)
@@ -353,6 +402,15 @@ class RTECAgent:
                     # Execute tool
                     result = self._execute_tool(name, args)
 
+                    if name == "compile_rules":
+                        try:
+                            payload = json.loads(result)
+                            if payload.get("success"):
+                                compiled_since_last_eval = True
+                                state.current_rules = args.get("rules")
+                        except Exception:
+                            pass
+
                     tool_messages.append({
                         "role": "tool",
                         "tool_call_id": tc.id,
@@ -369,8 +427,13 @@ class RTECAgent:
                     if name == "compare_to_gold":
                         try:
                             eval_result = EvalReport.model_validate_json(result)
+                            scoped = args.get("fluents")
+                            last_compare_fluents = scoped
+                            compiled_since_last_eval = False
                             nudge = self._eval_nudge(eval_result, state.last_eval)
-                            state.last_eval = eval_result
+                            self._record_eval(
+                                state, state.iteration, eval_result, scoped
+                            )
                             if eval_result.micro_f1 >= self.config.convergence_threshold:
                                 state.converged = True
                             elif nudge:
@@ -418,6 +481,22 @@ class RTECAgent:
                 else:
                     # Agent has good F1, can stop
                     break
+
+        # Final eval if the agent compiled/run but skipped compare_to_gold
+        if (
+            not state.converged
+            and compiled_since_last_eval
+            and state.iteration < self.config.max_iterations
+        ):
+            try:
+                eval_result = compare_to_gold(app, last_compare_fluents)
+                self._record_eval(
+                    state, state.iteration, eval_result, last_compare_fluents
+                )
+                if eval_result.micro_f1 >= self.config.convergence_threshold:
+                    state.converged = True
+            except Exception:
+                pass
         
         return state
     

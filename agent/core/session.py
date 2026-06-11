@@ -46,6 +46,8 @@ class TurnResult:
     forced: bool          # True if routed by an explicit /build or /ask
     answer: str | None = None      # set when route == 'ask'
     state: AgentState | None = None  # set when route == 'build'
+    fluent_key: str | None = None  # vocabulary pattern key, if resolved
+    payload: str = ""
 
 
 class RouterSession:
@@ -58,18 +60,31 @@ class RouterSession:
         on_thinking: Callable[[str], None] | None = None,
         on_tool_call: Callable[[str, dict], None] | None = None,
         on_tool_result: Callable[[str, str], None] | None = None,
+        on_eval: Callable | None = None,
+        on_iteration: Callable[[int], None] | None = None,
+        on_build_start: Callable[[str, str | None], None] | None = None,
+        resolve_request: Callable[[str, str], tuple[str, bool]] | None = None,
     ):
         self.app = app
         self.config = config or AgentConfig()
         self.client = OpenAI()
+        self._resolve_request = resolve_request
+        self._on_build_start = on_build_start
 
         cb = dict(
             on_thinking=on_thinking,
             on_tool_call=on_tool_call,
             on_tool_result=on_tool_result,
+            on_eval=on_eval,
+            on_iteration=on_iteration,
         )
         self.builder = RTECAgent(config=self.config, **cb)
-        self.qa = QAAgent(config=self.config, **cb)
+        self.qa = QAAgent(
+            config=self.config,
+            on_thinking=on_thinking,
+            on_tool_call=on_tool_call,
+            on_tool_result=on_tool_result,
+        )
 
         # QA keeps a running conversation; the builder is stateless (file-seeded).
         self.qa_history = [
@@ -117,6 +132,15 @@ class RouterSession:
 
     # ---- dispatch --------------------------------------------------------
 
+    def _resolve_fluent_key(self, text: str) -> str | None:
+        if not self._resolve_request:
+            return None
+        candidate = text.strip().split()[0] if text.strip() else ""
+        if not candidate:
+            return None
+        _, was_lookup = self._resolve_request(self.app, candidate)
+        return candidate if was_lookup else None
+
     def dispatch(self, text: str) -> TurnResult:
         """Route one user message and run the chosen agent."""
         route, payload = self._parse_override(text)
@@ -125,9 +149,24 @@ class RouterSession:
             route = self._classify(text)
             payload = text
 
+        fluent_key = self._resolve_fluent_key(payload) if route == "build" else None
+
         if route == "build":
+            if self._on_build_start:
+                self._on_build_start(payload, fluent_key)
             state = self.builder.run(self.app, payload)
-            return TurnResult(route="build", forced=forced, state=state)
+            return TurnResult(
+                route="build",
+                forced=forced,
+                state=state,
+                fluent_key=fluent_key,
+                payload=payload,
+            )
 
         answer = self.qa.ask(self.app, payload, history=self.qa_history)
-        return TurnResult(route="ask", forced=forced, answer=answer)
+        return TurnResult(
+            route="ask",
+            forced=forced,
+            answer=answer,
+            payload=payload,
+        )

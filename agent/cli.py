@@ -354,14 +354,31 @@ def qa(app: str, model: str, max_iter: int, verbose: bool):
 @click.argument('app')
 @click.option('--model', default='gpt-4o', help='LLM model to use')
 @click.option('--max-iter', default=10, help='Maximum iterations')
-@click.option('--verbose/--quiet', default=True, help='Show thinking/tool calls')
-def session(app: str, model: str, max_iter: int, verbose: bool):
+@click.option('--plain', is_flag=True, help='Plain terminal UI (no dashboard)')
+@click.option('--verbose/--quiet', default=True, help='Show thinking/tool calls (plain mode only)')
+def session(app: str, model: str, max_iter: int, plain: bool, verbose: bool):
     """Unified session: auto-routes between the builder and QA agents.
+
+    Default UI: split-pane dashboard (chat left, F1 metrics right).
+    Use --plain for the legacy scrolling terminal interface.
 
     Just talk naturally — questions go to the QA agent, rule-building requests
     go to the builder. Force a route with a /build or /ask prefix.
     """
     config = AgentConfig(model=model, max_iterations=max_iter)
+
+    if not plain:
+        try:
+            from .ui.session_app import run_session_dashboard
+            run_session_dashboard(app, config, _resolve_request)
+            return
+        except ImportError as e:
+            console.print(
+                f"[yellow]Dashboard requires textual: {e}[/yellow]\n"
+                "[dim]Install with: uv pip install -e \"agent/[dev]\"[/dim]\n"
+                "Falling back to plain session.\n"
+            )
+
     if verbose:
         sess = RouterSession(
             app, config,

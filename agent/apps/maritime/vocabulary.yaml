@@ -218,12 +218,10 @@ patterns:
     (thresholds rendezvousTime).
 
   trawlSpeed: >
-    The activity starts when the vessel is sailing in a fishing area and its
-    speed is within the expected bounds for a trawling activity
-    (thresholds trawlspeedMin, trawlspeedMax). The activity ends when the speed
-    of the vessel falls outside the expected bounds for a trawling activity.
-    When there is a gap in signal transmissions, we can no longer assume that
-    the vessel's speed remains within the aforementioned bounds.
+    The activity starts when the vessel is sailing in a fishing area and its speed is within the expected 
+    bounds for a trawling activity. The activity ends when the speed of the vessels falls outside the 
+    expected bounds for a trawling activity. When there is a gap in signal transmissions, 
+    we can no longer assume that the vessel's speed remains within the aforementioned bounds.
 
   trawlingMovement: >
     This activity expresses that the vessel is sailing in a manner that is

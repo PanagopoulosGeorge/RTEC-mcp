@@ -128,6 +128,18 @@ class AgentMessage(BaseModel):
 
 # ============= ReAct State =============
 
+class EvalSnapshotRecord(BaseModel):
+    """One F1 measurement during a build run (for observability)."""
+    iteration: int
+    micro_f1: float
+    macro_f1: float
+    per_fluent_f1: dict[str, float] = Field(default_factory=dict)
+    scoped_fluents: list[str] | None = None
+    delta: float | None = None
+    best_so_far: float = 0.0
+    improved: bool = False
+
+
 class AgentState(BaseModel):
     """Current state of the ReAct agent."""
     app: str
@@ -135,4 +147,5 @@ class AgentState(BaseModel):
     messages: list[AgentMessage] = Field(default_factory=list)
     current_rules: str | None = None
     last_eval: EvalReport | None = None
+    eval_history: list[EvalSnapshotRecord] = Field(default_factory=list)
     converged: bool = False
