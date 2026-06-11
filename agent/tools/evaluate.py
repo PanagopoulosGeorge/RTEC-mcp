@@ -216,9 +216,13 @@ def compare_to_gold(app: str, fluents: list[str] | None = None) -> EvalReport:
     f1_scores = [s.f1 for s in per_fluent if s.tp + s.fp + s.fn > 0]
     macro_f1 = sum(f1_scores) / len(f1_scores) if f1_scores else 0.0
     
+    # Only surface fluents that still need fixing — perfect-scoring entries
+    # add no actionable signal and bloat the model's context window.
+    imperfect = [s for s in per_fluent if s.f1 < 1.0]
+
     return EvalReport(
         micro_f1=micro_f1,
         macro_f1=macro_f1,
-        per_fluent=per_fluent,
-        diffs=diffs
+        per_fluent=imperfect,
+        diffs=diffs,
     )

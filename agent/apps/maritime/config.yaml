@@ -1,0 +1,39 @@
+# Configuration for the maritime application
+# Subset of the Brest AIS dataset (first 3 windows = ~30 hours)
+
+window_size: 36000
+step: 36000
+start_time: 1443650401
+end_time: 1443758401
+clock_tick: 1
+
+description: |
+  Maritime situational awareness (MSA) domain using AIS vessel tracking data
+  from the port of Brest area (France).
+
+  Scenario: Vessels transmit AIS position/speed/heading messages. RTEC
+  recognises composite activities such as vessels stopping, trawling,
+  drifting, performing SAR, or conducting suspicious rendezvous.
+
+  Key concepts:
+  - withinArea(V, AreaType): simple fluent, vessel is in a named area type
+  - gap(V): simple fluent, communication gap (nearPorts / farFromPorts)
+  - stopped(V): simple fluent, vessel is idle (nearPorts / farFromPorts)
+  - lowSpeed(V): simple fluent, vessel is moving at low speed
+  - changingSpeed(V): simple fluent, vessel is changing speed
+  - highSpeedNearCoast(V): simple fluent, vessel over speed limit in coastal area
+  - movingSpeed(V): simple fluent, speed category (below/normal/above)
+  - underWay(V): SD fluent, union of all movingSpeed intervals
+  - drifting(V): simple fluent, vessel heading vs bow direction diverge
+  - anchoredOrMoored(V): SD fluent, stopped in anchorage or near port
+  - tuggingSpeed(V): simple fluent, speed in tug operating range
+  - tugging(V1,V2): SD fluent, one vessel towing another
+  - rendezVous(V1,V2): SD fluent, two vessels meeting far from ports
+  - trawlSpeed(V): simple fluent, speed in trawling range inside fishing area
+  - trawlingMovement(V): simple fluent, heading changes inside fishing area
+  - trawling(V): SD fluent, full trawling activity
+  - sarSpeed(V): simple fluent, speed above SAR minimum
+  - sarMovement(V): simple fluent, heading/speed changes typical of SAR
+  - inSAR(V): SD fluent, vessel performing search-and-rescue
+  - loitering(V): SD fluent, vessel loafing in open water for a long time
+  - pilotOps(V1,V2): SD fluent, pilot vessel manoeuvring another vessel

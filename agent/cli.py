@@ -16,7 +16,6 @@ from .tools import (
     get_vocabulary,
     list_apps,
     get_syntax_docs,
-    translate_request,
 )
 
 
@@ -135,24 +134,6 @@ def gold(app: str):
         console.print(f"[red]Error: {e}[/red]")
 
 
-@cli.command()
-@click.argument('app')
-@click.argument('request')
-@click.option('--model', default='gpt-4o', help='LLM model to use')
-@click.option('--json', 'as_json', is_flag=True, help='Print the raw spec JSON')
-def translate(app: str, request: str, model: str, as_json: bool):
-    """Parse an NL request into a typed fluent spec (stage 1 only, no building)."""
-    config = AgentConfig(model=model)
-    tr = translate_request(app, request, config)
-    if as_json:
-        console.print_json(tr.model_dump_json(indent=2))
-        return
-    console.print(Panel(
-        tr.summary(),
-        title="🧭 Parsed spec" + ("" if tr.valid else " ⚠"),
-        border_style="cyan" if tr.valid else "red",
-    ))
-
 
 @cli.command()
 @click.argument('app')
@@ -259,10 +240,7 @@ def tasks(app: str):
 @click.argument('request')
 @click.option('--model', default='gpt-4o', help='LLM model to use')
 @click.option('--max-iter', default=10, help='Maximum iterations')
-@click.option('--translate/--no-translate', default=True,
-              help='Parse the NL request into a typed spec before building '
-                   '(stage 1). Use --no-translate to pass it through verbatim.')
-def run(app: str, request: str, model: str, max_iter: int, translate: bool):
+def run(app: str, request: str, model: str, max_iter: int):
     """Run a single request (non-interactive).
 
     REQUEST may be either a free-form NL sentence or a fluent name that
@@ -289,25 +267,6 @@ def run(app: str, request: str, model: str, max_iter: int, translate: bool):
         )
         console.print(f"[dim]  {nl_request!r}[/dim]\n")
 
-    # Stage 1: ground the NL request into a typed spec, then hand the builder
-    # the unambiguous brief instead of the raw sentence.
-    builder_request = nl_request
-    if translate:
-        tr = translate_request(app, nl_request, config)
-        console.print(Panel(
-            tr.summary(),
-            title="🧭 Stage 1: parsed spec" + ("" if tr.valid else " ⚠"),
-            border_style="cyan" if tr.valid else "red",
-        ))
-        if tr.spec is None:
-            console.print("[red]Could not parse a spec; aborting.[/red]")
-            return
-        if not tr.valid:
-            console.print(
-                "[yellow]Spec has grounding errors (see above); "
-                "building from it anyway.[/yellow]")
-        builder_request = tr.brief
-
     agent = RTECAgent(
         config=config,
         on_thinking=print_thinking,
@@ -315,11 +274,11 @@ def run(app: str, request: str, model: str, max_iter: int, translate: bool):
         on_tool_result=print_tool_result,
     )
 
-    console.print(f"[bold]Running:[/bold] {builder_request}")
+    console.print(f"[bold]Running:[/bold] {nl_request}")
     console.print()
 
-    state = agent.run(app, builder_request)
-    
+    state = agent.run(app, nl_request)
+
     console.print()
     if state.converged:
         console.print(f"[bold green]✅ Converged! F1 = {state.last_eval.micro_f1:.3f}[/bold green]")

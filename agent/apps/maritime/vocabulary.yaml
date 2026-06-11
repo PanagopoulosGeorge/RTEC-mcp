@@ -1,0 +1,434 @@
+# Vocabulary for the maritime situational awareness (MSA) domain
+#
+# The fluent list below is intentionally UNCLASSIFIED: the translator
+# (stage 1) decides whether each fluent is simple or statically-determined
+# from the natural-language request, not from a pre-existing label.
+
+events:
+  - change_in_speed_start(Vessel)   # Vessel started changing its speed
+  - change_in_speed_end(Vessel)     # Vessel stopped changing its speed
+  - change_in_heading(Vessel)       # Vessel changed its heading
+  - stop_start(Vessel)              # Vessel started being idle
+  - stop_end(Vessel)                # Vessel stopped being idle
+  - slow_motion_start(Vessel)       # Vessel started moving at low speed
+  - slow_motion_end(Vessel)         # Vessel stopped moving at low speed
+  - gap_start(Vessel)               # Vessel stopped sending position signals
+  - gap_end(Vessel)                 # Vessel resumed sending position signals
+  - entersArea(Vessel, AreaID)      # Vessel enters an area with id AreaID
+  - leavesArea(Vessel, AreaID)      # Vessel leaves an area with id AreaID
+  - velocity(Vessel, Speed, CourseOverGround, TrueHeading)  # AIS velocity report
+
+# Input fluent (arrives as intervals from the stream)
+input_fluents:
+  - proximity(Vessel1, Vessel2)=true  # Two vessels are close to each other
+
+# Output fluents (unclassified — kind derived from NL by the translator)
+fluents:
+  - withinArea(Vessel, AreaType)    # Vessel is within a named area type
+  - gap(Vessel)                     # Communication gap (nearPorts / farFromPorts)
+  - stopped(Vessel)                 # Vessel is idle (nearPorts / farFromPorts)
+  - lowSpeed(Vessel)                # Vessel is moving at low speed
+  - changingSpeed(Vessel)           # Vessel is changing speed
+  - highSpeedNearCoast(Vessel)      # Vessel over coastal speed limit
+  - movingSpeed(Vessel)             # Speed category: below / normal / above
+  - underWay(Vessel)                # Vessel is underway (not stopped)
+  - drifting(Vessel)                # Vessel is drifting (heading vs bow diverge)
+  - anchoredOrMoored(Vessel)        # Vessel is anchored or moored
+  - tuggingSpeed(Vessel)            # Vessel speed in tugging range
+  - tugging(Vessel1, Vessel2)       # One vessel is towing another
+  - rendezVous(Vessel1, Vessel2)    # Two vessels meeting far from ports
+  - trawlSpeed(Vessel)              # Speed in trawling range inside fishing area
+  - trawlingMovement(Vessel)        # Heading changes inside fishing area
+  - trawling(Vessel)                # Full trawling activity
+  - sarSpeed(Vessel)                # Speed above SAR minimum threshold
+  - sarMovement(Vessel)             # Movement typical of SAR operations
+  - inSAR(Vessel)                   # Vessel is performing SAR
+  - loitering(Vessel)               # Vessel loafing in open water
+  - pilotOps(Vessel1, Vessel2)      # Pilot vessel manoeuvring another vessel
+
+entities:
+  areaType: [nearPorts, nearCoast, nearCoast5k, anchorage, fishing, natura]
+  portStatus: [nearPorts, farFromPorts]
+  movingStatus: [below, normal, above]
+
+thresholds:
+  hcNearCoastMax: null    # max sailing speed that is safe in a coastal area
+  adriftAngThr: null      # max angle diff (CourseOverGround vs TrueHeading) before drifting
+  aOrMTime: null          # max idle duration before vessel is considered anchored/moored
+  trawlspeedMin: null     # min speed of a vessel engaged in trawling
+  trawlspeedMax: null     # max speed of a vessel engaged in trawling
+  tuggingMin: null        # min speed of a vessel engaged in a tugging operation
+  tuggingMax: null        # max speed of a vessel engaged in a tugging operation
+  tuggingTime: null       # min duration of a tugging operation
+  movingMin: null         # min speed of a moving vessel
+  movingMax: null         # max speed of a moving vessel
+  sarMinSpeed: null       # min speed of a vessel engaged in a SAR operation
+  trawlingCrs: null       # max duration of trawlingMovement=true before auto-transitioning to =false
+  trawlingTime: null      # min duration of a trawling activity
+  loiteringTime: null     # min duration of a loitering activity
+  rendezvousTime: null    # min duration of a rendezVous meeting
+
+# Background predicates available at runtime. Each entry is a full description
+# that the agent reads verbatim: "predicate(args) — meaning".
+background_predicates:
+  # ── Threshold lookups ───────────────────────────────────────────────────────
+  - "thresholds(hcNearCoastMax, HcNearCoastMax) — The maximum sailing speed that
+    is safe for a vessel to have in a coastal area. Use for highSpeedNearCoast."
+  - "thresholds(adriftAngThr, AdriftAngThr) — The maximum angle difference between
+    the actual direction of a vessel (CourseOverGround) and the direction of its
+    bow (TrueHeading) for which we consider the vessel is not drifting."
+  - "thresholds(aOrMTime, AOrMTime) — The maximum temporal extent during which a
+    vessel may be idle without being considered anchored or moored."
+  - "thresholds(trawlspeedMin, TrawlspeedMin) — The minimum speed of a vessel
+    engaged in a trawling activity."
+  - "thresholds(trawlspeedMax, TrawlspeedMax) — The maximum speed of a vessel
+    engaged in a trawling activity."
+  - "thresholds(tuggingMin, TuggingMin) — The minimum speed of a vessel engaged
+    in a tugging operation."
+  - "thresholds(tuggingMax, TuggingMax) — The maximum speed of a vessel engaged
+    in a tugging operation."
+  - "thresholds(tuggingTime, TuggingTime) — The minimum duration of a tugging
+    operation."
+  - "thresholds(movingMin, MovingMin) — The minimum speed of a moving vessel.
+    movingSpeed terminates when speed falls below this value."
+  - "thresholds(movingMax, MovingMax) — The maximum speed of a moving vessel."
+  - "thresholds(sarMinSpeed, SarMinSpeed) — The minimum speed of a vessel engaged
+    in a search-and-rescue (SAR) operation."
+  - "thresholds(trawlingTime, TrawlingTime) — The minimum duration of a trawling
+    activity."
+  - "thresholds(loiteringTime, LoiteringTime) — The minimum duration of a
+    loitering activity."
+  - "thresholds(rendezvousTime, RendezvousTime) — The minimum duration of a
+    rendezVous meeting between two vessels."
+  # ── Vessel and area classification ──────────────────────────────────────────
+  - "typeSpeed(Type, Min, Max, Avg) — The minimum, maximum, and average speed of
+    each vessel type. Use with vesselType/2 to get speed bounds per vessel."
+  - "vesselType(Vessel, Type) — The vessel type of each vessel (cargo, tanker,
+    fishing, tug, sar, pilot, ...)."
+  - "areaType(Area, AreaType) — Maps a specific area polygon ID to its named type
+    (nearPorts, nearCoast, nearCoast5k, anchorage, fishing, natura)."
+  # ── Pair and geometry predicates ────────────────────────────────────────────
+  - "oneIsTug(Vessel1, Vessel2) — At least one of the two vessels is a tugboat."
+  - "oneIsPilot(Vessel1, Vessel2) — At least one of the two vessels is a pilot
+    vessel."
+  - "twoAreTugs(Vessel1, Vessel2) — Both vessels are tugboats."
+  - "absoluteAngleDiff(Angle1, Angle2, Diff) — Diff is the absolute angular
+    difference between Angle1 and Angle2 (in degrees, range 0–180)."
+  # ── Interval utilities ───────────────────────────────────────────────────────
+  - "intDurGreater(Intervals, MinDuration, Filtered) — Filtered is the sublist of
+    Intervals whose duration exceeds MinDuration. Use to enforce minimum activity
+    durations."
+  - "inRange(Var, Min, Max) — Var is strictly between Min and Max (exclusive
+    bounds). NOTE: \\+inRange(Speed, 0, Max) is NOT the same as Speed > Max at
+    the boundary; prefer explicit arithmetic comparisons."
+
+# Fluent task descriptions — one entry per output fluent.
+# Key = fluent name (pass directly to `cli run maritime <key>`).
+# Value = natural-language description of when that fluent holds.
+patterns:
+  withinArea: >
+    This activity starts when a vessel enters an area of interest.
+    The activity ends when the vessel leaves the area that it had entered,
+    or when the vessel stops transmitting its position, since we can no longer
+    assume that the vessel remains in the same area in the case of transmission
+    gaps. The fluent has two arguments: Vessel and AreaType.
+
+  gap: >
+    A communication gap starts when we stop receiving messages from a vessel.
+    We would like to distinguish the cases where a communication gap starts
+    (i) near some port and (ii) far from all ports.
+    A communication gap ends when we resume receiving messages from a vessel.
+
+  stopped: >
+    This activity starts when a vessel becomes idle near some port or far from
+    all ports. The activity ends when the vessel stops being idle, i.e., when
+    it starts to move. When there is a gap in signal transmissions, we can no
+    longer assume that the vessel remains stopped.
+
+  lowSpeed: >
+    The activity starts when the vessel starts moving at a low speed.
+    The activity ends when the vessel stops moving at a low speed.
+    When there is a gap in signal transmissions, we can no longer assume
+    that the vessel continues moving at a low speed.
+
+  changingSpeed: >
+    The activity starts when the speed of the vessel starts changing.
+    The activity ends when the speed of the vessel stops changing.
+    When there is a gap in signal transmissions, we can no longer assume
+    that the vessel's speed is currently changing.
+
+  highSpeedNearCoast: >
+    This activity starts when a vessel is sailing within a coastal area and its
+    speed surpasses the coastal speed limit. The activity ends when the speed of
+    the vessel becomes less than the coastal speed limit or the vessel exits the
+    coastal area.
+
+  movingSpeed: >
+    The activity monitors the time periods during which a vessel of a certain
+    type is moving at a speed that is "below" the minimum speed expected for a
+    vessel of this type, "normal", i.e., within the expected bounds for the speed
+    of a vessel of this type, and "above" the maximum speed expected for a vessel
+    of this type. The activity ends when the speed of the vessel falls below the
+    minimum speed expected for a moving vessel (thresholds movingMin).
+    When there is a gap in signal transmissions, we can no longer assume that
+    the vessel's speed remains the same.
+    Use typeSpeed(Type, Min, Max, Avg) and vesselType(Vessel, Type) for bounds.
+
+  underWay: >
+    This activity lasts as long as a vessel is not stopped.
+    It is the union of all movingSpeed intervals (below, normal, and above).
+
+  drifting: >
+    This activity expresses that a vessel is drifting due to sea currents or
+    harsh weather conditions. The activity starts when the angle difference
+    between the actual direction of the vessel (CourseOverGround) and the
+    direction of its bow (TrueHeading) exceeds a maximum limit
+    (thresholds adriftAngThr), expressing a significant divergence.
+    The activity ends when this angle difference falls below the aforementioned
+    threshold or when the vessel stops moving.
+    Note: TrueHeading=511.0 means heading is unavailable; exclude this case.
+
+  anchoredOrMoored: >
+    The activity lasts as long as the vessel is idle in an anchorage area that
+    is far from all ports, or is idle near some port.
+    Only activities whose duration exceeds thresholds(aOrMTime) are recognised.
+
+  tuggingSpeed: >
+    The activity starts when the vessel is sailing at a speed that is within
+    the expected bounds for a tugging operation (thresholds tuggingMin,
+    tuggingMax). The activity ends when the vessel is no longer sailing at a
+    speed that is within the expected bounds for a tugging operation.
+    When there is a gap in signal transmissions, we can no longer assume
+    that the vessel's speed remains within the aforementioned bounds.
+
+  tugging: >
+    The activity involves a vessel being pulled or towed by a tugboat.
+    Tugging lasts as long as the two involved vessels, one of which must be a
+    tugboat, are sailing close to each other and their speed falls within the
+    expected bounds for a tugging operation. Tugging operations cannot be
+    arbitrarily brief, i.e., the duration of a tugging operation exceeds a
+    minimum temporal threshold (thresholds tuggingTime).
+
+  rendezVous: >
+    This activity lasts as long as two vessels are close to each other, their
+    speed is low and they are far from the coastline. Furthermore, neither of
+    the two vessels should be a tug boat or a pilot vessel. We are interested
+    in vessel meetings whose duration exceeds the expected minimum time required
+    for a suspicious action, like an illegal cargo transfer
+    (thresholds rendezvousTime).
+
+  trawlSpeed: >
+    The activity starts when the vessel is sailing in a fishing area and its
+    speed is within the expected bounds for a trawling activity
+    (thresholds trawlspeedMin, trawlspeedMax). The activity ends when the speed
+    of the vessel falls outside the expected bounds for a trawling activity.
+    When there is a gap in signal transmissions, we can no longer assume that
+    the vessel's speed remains within the aforementioned bounds.
+
+  trawlingMovement: >
+    This activity expresses that the vessel is sailing in a manner that is
+    typical for a trawling activity. The activity starts when the vessel changes
+    its heading while sailing within a fishing area.
+    The activity ends when the vessel leaves the fishing area.
+    Additionally, trawlingMovement has a deadline: after trawlingMovement=true
+    has held continuously for trawlingCrs seconds without explicit termination,
+    it automatically transitions to trawlingMovement=false. Express this with
+    fi(trawlingMovement(Vessel)=true, trawlingMovement(Vessel)=false, TrawlingCrs)
+    and p(trawlingMovement(_Vessel)=true). You must also add grounding for =false.
+
+  trawling: >
+    Trawling is a common fishing method that involves a boat pulling a fishing
+    net through the water behind it. Trawling lasts as long as the vessel is
+    sailing in a fishing area, its speed is within the expected bounds for a
+    trawling activity and it is sailing in a manner that is typical for a
+    trawling activity. Trawling activities cannot be arbitrarily brief, i.e.,
+    the duration of trawling activities exceeds a minimum temporal threshold
+    (thresholds trawlingTime).
+
+  sarSpeed: >
+    The activity starts when the speed of the vessel exceeds the minimum
+    expected speed of a vessel that is engaged in a search-and-rescue (SAR)
+    operation (thresholds sarMinSpeed). The activity ends when the speed of the
+    vessel falls below the aforementioned minimum speed threshold.
+    When there is a gap in signal transmissions, we can no longer assume that
+    the vessel's speed remains above the aforementioned threshold.
+
+  sarMovement: >
+    This activity expresses that the vessel is moving in a manner that is
+    typical for a search-and-rescue (SAR) operation. The activity starts when
+    the vessel changes its speed or its heading. When there is a gap in signal
+    transmissions, we can no longer assume that the vessel keeps moving in a
+    similar fashion.
+
+  inSAR: >
+    This activity expresses that the vessel is performing a search-and-rescue
+    (SAR) operation. The activity lasts as long as the vessel is sailing at a
+    speed that is typical for a vessel involved in a SAR operation
+    (sarSpeed=true) and the vessel is moving in a manner that is typical for
+    such an operation (sarMovement=true).
+
+  loitering: >
+    This activity expresses that the vessel is in a particular area for a long
+    period without any evident purpose. The activity lasts as long as the vessel
+    has low speed or is idle far from all ports, and it is not near a coast,
+    it is not anchored, and it is not moored. The activity cannot be arbitrarily
+    brief, i.e., we detect loitering when the temporal extent during which the
+    vessel is loafing around exceeds a minimum threshold
+    (thresholds loiteringTime).
+
+  pilotOps: >
+    This activity expresses that a highly experienced sailor - a maritime pilot
+    - approaches with a pilot vessel, boards and manoeuvres another vessel
+    through dangerous or congested areas. The activity lasts as long as the two
+    involved vessels, one of which being a pilot vessel, are sailing close to
+    each other, each having a low speed or being idle far from all ports, and
+    are not within a coastal area.
+
+# Required Prolog boilerplate — must appear verbatim at the top of every
+# compile_rules() call for RTEC to run correctly.
+preamble: |
+  collectIntervals(proximity(_,_)=true).
+  dynamicDomain(vessel(_Vessel)).
+  dynamicDomain(vpair(_Vessel1,_Vessel2)).
+  needsGrounding(_, _, _) :- fail.
+  buildFromPoints(_) :- fail.
+
+# Few-shot examples from llms.docx (Prompts RTEC-SF1, RTEC-SF2, RTEC-SDF1, RTEC-SDF2).
+#
+# nl     : the composite activity description as given to the LLM.
+# explain: step-by-step reasoning from the docx answer, explaining each clause.
+# rule   : only the rules for this fluent + grounding/index declarations.
+#          No dependency fluent rules. No simpleFluent/inputEntity/outputEntity
+#          declarations (the compiler infers those automatically).
+examples:
+  # ── RTEC-SF1: withinArea ─────────────────────────────────────────────
+  - nl: >
+      withinArea: This activity starts when a vessel enters an area of
+      interest. The activity ends when the vessel leaves the area that it
+      had entered, or when the vessel stops transmitting its position,
+      since we can no longer assume that the vessel remains in the same
+      area in the case of transmission gaps.
+    explain: >
+      "withinArea" is a Boolean simple fluent with two arguments: Vessel
+      and AreaType. Initiation uses an initiatedAt rule triggered by
+      entersArea(Vessel, Area) and maps the specific area ID to its type
+      via areaType(Area, AreaType). Termination has two clauses: (1)
+      leavesArea with the same areaType mapping to match the entered area
+      type, and (2) gap_start using a free variable _AreaType to terminate
+      regardless of which area type the vessel was in.
+    rule: |
+      % ── withinArea ──
+      initiatedAt(withinArea(Vessel, AreaType)=true, T) :-
+          happensAt(entersArea(Vessel, Area), T),
+          areaType(Area, AreaType).
+
+      terminatedAt(withinArea(Vessel, AreaType)=true, T) :-
+          happensAt(leavesArea(Vessel, Area), T),
+          areaType(Area, AreaType).
+
+      terminatedAt(withinArea(Vessel, _AreaType)=true, T) :-
+          happensAt(gap_start(Vessel), T).
+
+      grounding(entersArea(V, Area)) :- vessel(V), areaType(Area).
+      grounding(leavesArea(V, Area)) :- vessel(V), areaType(Area).
+      grounding(gap_start(V)) :- vessel(V).
+      grounding(withinArea(V, AreaType)=true) :- vessel(V), areaType(AreaType).
+      index(withinArea(V, AreaType)=true, V).
+
+  # ── RTEC-SF2: stopped ────────────────────────────────────────────────
+  - nl: >
+      stopped: This activity starts when a vessel becomes idle near some
+      port or far from all ports. The activity ends when the vessel stops
+      being idle, i.e., when it starts to move. When there is a gap in
+      signal transmissions, we can no longer assume that the vessel
+      remains stopped.
+    explain: >
+      "stopped" is a simple fluent. Two initiatedAt clauses cover the two
+      values: "nearPorts" when holdsAt(withinArea(Vessel,nearPorts)=true,T)
+      holds at the stop_start event, and "farFromPorts" when it does not
+      hold (negation-as-failure \+). A single terminatedAt clause handles
+      stop_end irrespective of value (free variable _Status). A second
+      terminatedAt clause uses the built-in start(gap(Vessel)=_GapStatus)
+      event to terminate the fluent as soon as a communication gap begins,
+      regardless of port status.
+    rule: |
+      % ── stopped ──
+      initiatedAt(stopped(Vessel)=nearPorts, T) :-
+          happensAt(stop_start(Vessel), T),
+          holdsAt(withinArea(Vessel, nearPorts)=true, T).
+
+      initiatedAt(stopped(Vessel)=farFromPorts, T) :-
+          happensAt(stop_start(Vessel), T),
+          \+holdsAt(withinArea(Vessel, nearPorts)=true, T).
+
+      terminatedAt(stopped(Vessel)=_Status, T) :-
+          happensAt(stop_end(Vessel), T).
+
+      terminatedAt(stopped(Vessel)=_Status, T) :-
+          happensAt(start(gap(Vessel)=_GapStatus), T).
+
+      grounding(stop_start(V)) :- vessel(V).
+      grounding(stop_end(V)) :- vessel(V).
+      grounding(stopped(V)=PortStatus) :- vessel(V), portStatus(PortStatus).
+      index(stopped(V)=_, V).
+
+  # ── RTEC-SDF1: underWay ──────────────────────────────────────────────
+  - nl: >
+      underWay: This activity lasts as long as a vessel is not stopped.
+    explain: >
+      "underWay" is a statically determined fluent using a holdsFor rule.
+      It is the disjunction of the three values of movingSpeed (below,
+      normal, above), expressed with union_all which merges their maximal
+      interval lists into one unified list.
+    rule: |
+      % ── underWay ──
+      holdsFor(underWay(Vessel)=true, I) :-
+          holdsFor(movingSpeed(Vessel)=below, I1),
+          holdsFor(movingSpeed(Vessel)=normal, I2),
+          holdsFor(movingSpeed(Vessel)=above, I3),
+          union_all([I1,I2,I3], I).
+
+      grounding(underWay(V)=true) :- vessel(V).
+      index(underWay(V)=true, V).
+
+  # ── RTEC-SDF2: rendezVous ────────────────────────────────────────────
+  - nl: >
+      rendezVous: This activity lasts as long as two vessels are close to
+      each other, their speed is low and they are far from the coastline.
+      Furthermore, neither of the two vessels should be a tug boat or a
+      pilot vessel. We are interested in vessel meetings whose duration
+      exceeds the expected minimum time required for a suspicious action,
+      like an illegal cargo transfer.
+    explain: >
+      "rendezVous" is a statically determined fluent. proximity gives the
+      periods the two vessels are close. oneIsTug and oneIsPilot are
+      negated (\+) to exclude tug/pilot pairs. union_all combines
+      lowSpeed and stopped(farFromPorts) for each vessel. intersect_all
+      requires both vessels to satisfy that condition simultaneously while
+      in proximity. relative_complement_all removes periods where either
+      vessel is nearPorts or nearCoast. intDurGreater filters out
+      intervals shorter than thresholds(rendezvousTime).
+    rule: |
+      % ── rendezVous ──
+      holdsFor(rendezVous(Vessel1, Vessel2)=true, I) :-
+          holdsFor(proximity(Vessel1, Vessel2)=true, Ip),
+          \+oneIsTug(Vessel1, Vessel2),
+          \+oneIsPilot(Vessel1, Vessel2),
+          holdsFor(lowSpeed(Vessel1)=true, Il1),
+          holdsFor(lowSpeed(Vessel2)=true, Il2),
+          holdsFor(stopped(Vessel1)=farFromPorts, Is1),
+          holdsFor(stopped(Vessel2)=farFromPorts, Is2),
+          union_all([Il1, Is1], I1b),
+          union_all([Il2, Is2], I2b),
+          intersect_all([I1b, I2b, Ip], If), If\=[],
+          holdsFor(withinArea(Vessel1, nearPorts)=true, Iw1),
+          holdsFor(withinArea(Vessel2, nearPorts)=true, Iw2),
+          holdsFor(withinArea(Vessel1, nearCoast)=true, Iw3),
+          holdsFor(withinArea(Vessel2, nearCoast)=true, Iw4),
+          relative_complement_all(If,[Iw1, Iw2, Iw3, Iw4], Ii),
+          thresholds(rendezvousTime, RendezvousTime),
+          intDurGreater(Ii, RendezvousTime, I).
+
+      grounding(proximity(V1, V2)=true) :- vpair(V1, V2).
+      grounding(rendezVous(V1, V2)=true) :- vpair(V1, V2).
+      index(rendezVous(V1, V2)=true, V1).

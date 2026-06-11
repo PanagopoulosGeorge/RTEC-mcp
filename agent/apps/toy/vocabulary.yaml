@@ -36,3 +36,29 @@ patterns:
 
   happy: >
     A person is happy as long as they are rich or at the pub.
+
+# Few-shot NL + rules pairs.
+# nl  : shown to the stage-1 translator as a phrasing reference.
+# rules: injected into the stage-2 RTECAgent as pre-existing rules the
+#        agent must carry forward — so this fluent is available as a
+#        dependency when generating the next one.
+examples:
+  - nl: >
+      Someone becomes rich when they win the lottery and stops being rich
+      when they lose their wallet.
+    rules: |
+      simpleFluent(rich/1).
+      inputEntity(win_lottery/1).
+      inputEntity(lose_wallet/1).
+      outputEntity(rich/1).
+
+      initiatedAt(rich(X)=true, T) :-
+          happensAt(win_lottery(X), T).
+
+      terminatedAt(rich(X)=true, T) :-
+          happensAt(lose_wallet(X), T).
+
+      grounding(win_lottery(X)) :- person(X).
+      grounding(lose_wallet(X)) :- person(X).
+      grounding(rich(X)=true) :- person(X).
+      index(rich(X)=true, X).

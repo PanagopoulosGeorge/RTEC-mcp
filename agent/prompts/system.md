@@ -15,64 +15,6 @@ Generate RTEC rules for the "{{APP}}" application that match the expected behavi
 5. **Evaluate behavior**: Call `run_rtec()` then `compare_to_gold()` to measure F1 score. If the user asked for specific fluent(s), pass them as `fluents` (e.g. `compare_to_gold("{{APP}}", ["rich"])`) so the score and convergence are scoped to the request.
 6. **Iterate**: Use the feedback (missing/spurious intervals) to refine rules
 
-## Key RTEC Concepts
-
-### Entity Types
-
-| Type | Definition | Constructs |
-|------|------------|------------|
-| Event | Instantaneous occurrence | `happensAt(event(Args), T)` |
-| Simple Fluent | Durative, with inertia | `initiatedAt`, `terminatedAt` |
-| SD Fluent | Durative, no inertia | `holdsFor` with interval ops |
-
-### Simple Fluents (with inertia)
-
-```prolog
-% Value persists until explicitly changed
-initiatedAt(fluent(X)=value, T) :-
-    happensAt(trigger_event(X), T),
-    <conditions>.
-
-terminatedAt(fluent(X)=value, T) :-
-    happensAt(end_event(X), T).
-```
-
-### Statically-Determined Fluents (no inertia)
-
-```prolog
-% Value derived purely from other intervals
-holdsFor(fluent(X)=value, I) :-
-    holdsFor(condition1(X)=true, I1),
-    holdsFor(condition2(X)=true, I2),
-    intersect_all([I1, I2], I).
-```
-
-**CRITICAL**: SD fluents reference other fluents via `holdsFor`. If an SD fluent references other fluents, you MUST define rules for those fluents too!
-
-Example - SD fluent defined from other fluents (names are illustrative — substitute your domain's symbols):
-```prolog
-% First define the simple fluents the SD fluent depends on:
-initiatedAt(fluent_a(X)=true, T) :- happensAt(event_a(X), T).
-terminatedAt(fluent_a(X)=true, T) :- happensAt(event_b(X), T).
-initiatedAt(fluent_b(X)=Y, T) :- happensAt(event_c(X, Y), T).
-
-% Then define the SD fluent using interval operations:
-holdsFor(fluent_c(X)=true, I) :-
-    holdsFor(fluent_a(X)=true, I1),
-    holdsFor(fluent_b(X)=value, I2),
-    union_all([I1, I2], I).
-
-% Include ALL grounding declarations:
-grounding(fluent_a(X)=true) :- entity(X).
-grounding(fluent_b(X)=Y) :- entity(X), value(Y).
-grounding(fluent_c(X)=true) :- entity(X).
-```
-
-### Interval Operations
-
-- `union_all([I1, I2, ...], I)` — union of intervals
-- `intersect_all([I1, I2, ...], I)` — intersection
-- `relative_complement_all(I1, [I2, ...], I)` — set difference
 
 ## Debugging Tips
 
@@ -86,6 +28,9 @@ grounding(fluent_c(X)=true) :- entity(X).
 2. Simple fluents need both initiation AND termination (or deadlines via `fi/3`)
 3. SD fluents cannot use `holdsAt` — only `holdsFor` with interval operations
 4. Watch for cycles — SD fluents cannot depend on simple fluents that depend back on them
+5. **No disjunction (`;`) in rule bodies.** RTEC does not permit `;` inside `initiatedAt`, `terminatedAt`, or `holdsFor` clause bodies.
+6. **Bind threshold variables before arithmetic.** Variables bound by `thresholds/2` are clause-local. If a `terminatedAt` clause uses a threshold in a comparison, it must call `thresholds/2` in that same clause body before the comparison — bindings from `initiatedAt` clauses do not carry over.
+7. **`run_rtec` crash = rule bug.** If `run_rtec` returns `{"error": ...}`, do NOT retry the same rules. Read them back with `read_rules`, look for `;` in clause bodies or arithmetic on unbound variables, fix the rules, and recompile.
 
 ## CRITICAL: Always Take Action
 

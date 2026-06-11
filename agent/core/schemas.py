@@ -2,7 +2,6 @@
 
 from pydantic import BaseModel, Field
 from typing import Literal
-from enum import Enum
 
 
 # ============= Tool Input/Output Schemas =============
@@ -62,128 +61,52 @@ class EvalReport(BaseModel):
         return "\n".join(lines)
 
 
+class FluentExample(BaseModel):
+    """A worked example from the domain document (llms.docx).
+
+    `nl`      : the composite activity description as given to the LLM.
+    `explain` : step-by-step reasoning explaining each clause choice.
+    `rule`    : only the rules for this fluent + grounding/index — no
+                dependency fluent rules and no simpleFluent/inputEntity/
+                outputEntity declarations (the compiler infers those).
+    """
+    nl: str
+    explain: str = ""
+    rule: str
+
+
 class Vocabulary(BaseModel):
     """Available vocabulary for an application.
 
     The signature is intentionally **flat**: events are listed separately, but
-    fluents are a single unclassified list. The translator (stage 1) decides
-    whether each fluent is simple or statically determined from the natural
-    language request — we do NOT pre-classify them in the signature, because
-    that would leak the answer the builder agent is supposed to derive.
+    fluents are a single unclassified list. The agent decides whether each
+    fluent is simple or statically determined from the natural language request
+    — we do NOT pre-classify them in the signature, because that would leak
+    the answer the agent is supposed to derive.
     """
     events: list[str] = Field(default_factory=list)
     # Flat list of every fluent symbol the domain exposes. The order or
     # grouping carries no semantics — do not infer "simple" vs "SD" from it.
     fluents: list[str] = Field(default_factory=list)
     entities: dict[str, list[str]] = Field(default_factory=dict)  # type -> values
-    thresholds: dict[str, int | float] = Field(default_factory=dict)
-    # Optional domain examples shown to the stage-1 parser (NL descriptions of
-    # how key fluents behave). Keyed by a short label, value is a free-text
-    # description. Populated from vocabulary.yaml's `patterns` block.
+    thresholds: dict[str, int | float | None] = Field(default_factory=dict)
+    # Required Prolog boilerplate that must appear at the top of every
+    # compile_rules() call (collectIntervals, dynamicDomain, needsGrounding,
+    # buildFromPoints). Domain-specific; populated from vocabulary.yaml.
+    preamble: str = ""
+    # Background knowledge predicates available at runtime. Each entry is a
+    # self-contained description: "predicate(args) — meaning". Populated from
+    # vocabulary.yaml's `background_predicates` block.
+    background_predicates: list[str] = Field(default_factory=list)
+    # NL descriptions of each output fluent, keyed by fluent name.
+    # Populated from vocabulary.yaml's `patterns` block. Passed verbatim to
+    # the agent as the task description.
     patterns: dict[str, str] = Field(default_factory=dict)
-    # Representative NL requests for this domain (not used by the parser itself,
-    # but useful for evaluation and documentation).
+    # Representative NL requests for this domain (documentation only).
     example_requests: list[str] = Field(default_factory=list)
-
-
-# ============= Stage 1: NL -> typed spec (the IR) =============
-
-class EventRef(BaseModel):
-    """A reference to an input event, e.g. win_lottery(X)."""
-    event: str
-    args: list[str] = Field(default_factory=list)
-
-
-class ConditionRef(BaseModel):
-    """A (fluent=value) condition evaluated over intervals, e.g. location(X)=pub."""
-    fluent: str
-    args: list[str] = Field(default_factory=list)
-    value: str = "true"
-
-
-# How NL connectives map to RTEC interval operations.
-_OP_WORD = {
-    "union": "union",              # "or" / "either" over durative conditions
-    "intersect": "intersection",   # "and" / "while both"
-    "complement": "relative complement",  # "but not" / "except when"
-}
-
-
-class DefinitionExpr(BaseModel):
-    """An interval expression defining an SD fluent.
-
-    For `complement`, the first operand is the base set and the rest are
-    subtracted from it (matches RTEC `relative_complement_all`).
-    """
-    op: Literal["union", "intersect", "complement"]
-    operands: list[ConditionRef] = Field(default_factory=list)
-
-
-class FluentSpec(BaseModel):
-    """Typed, signature-grounded specification of a single fluent.
-
-    This is the intermediate representation between natural language (stage 1
-    input) and Prolog rules (stage 2 output). It deliberately encodes *what*
-    the fluent means in terms of known vocabulary symbols, not *how* RTEC
-    expresses it — the builder agent owns the Prolog.
-    """
-    target: str
-    args: list[str] = Field(default_factory=list)
-    kind: Literal["simple_fluent", "sd_fluent"]
-    value: str = "true"
-    # SD fluent: derived from other intervals.
-    definition: DefinitionExpr | None = None
-    # Simple fluent: event-triggered initiation/termination (inertia).
-    initiated_by: list[EventRef] = Field(default_factory=list)
-    terminated_by: list[EventRef] = Field(default_factory=list)
-
-    def to_brief(self) -> str:
-        """Render the spec as an unambiguous instruction for the builder agent."""
-        head = f"{self.target}({', '.join(self.args)})={self.value}"
-        if self.kind == "sd_fluent" and self.definition:
-            word = _OP_WORD[self.definition.op]
-            lines = [
-                f"Generate RTEC rules for the statically-determined fluent {head}.",
-                f"It holds during the {word} of:",
-            ]
-            for c in self.definition.operands:
-                cond = f"{c.fluent}({', '.join(c.args)})={c.value}"
-                lines.append(f"  - intervals where {cond}")
-            lines.append(
-                "Define every dependency fluent it references (if not already "
-                "present) and include grounding declarations for all fluents."
-            )
-            return "\n".join(lines)
-
-        lines = [f"Generate RTEC rules for the simple fluent {head}."]
-        for e in self.initiated_by:
-            lines.append(f"It is initiated when {e.event}({', '.join(e.args)}) happens.")
-        for e in self.terminated_by:
-            ev = f"{e.event}({', '.join(e.args)})"
-            lines.append(f"It is terminated when {ev} happens.")
-        lines.append("Include grounding declarations.")
-        return "\n".join(lines)
-
-
-class TranslationResult(BaseModel):
-    """Output of stage 1: a spec plus how well it grounds in the signature."""
-    spec: FluentSpec | None = None
-    valid: bool = False
-    errors: list[str] = Field(default_factory=list)    # hard grounding failures
-    warnings: list[str] = Field(default_factory=list)  # soft notes
-    brief: str = ""  # rendered instruction passed to the builder
-
-    def summary(self) -> str:
-        lines = []
-        if self.spec:
-            lines.append(self.brief)
-        if self.errors:
-            lines.append("\nGrounding errors:")
-            lines.extend(f"  ✗ {e}" for e in self.errors)
-        if self.warnings:
-            lines.append("\nWarnings:")
-            lines.extend(f"  ! {w}" for w in self.warnings)
-        return "\n".join(lines) or "(no spec)"
+    # Few-shot NL + rules pairs. `nl` surfaces as domain reference context;
+    # `rules` are pre-seeded into the agent as correct definitions to build on.
+    examples: list[FluentExample] = Field(default_factory=list)
 
 
 # ============= Agent Message Schemas =============

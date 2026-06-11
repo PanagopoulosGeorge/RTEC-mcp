@@ -2,212 +2,77 @@
 
 ## Overview
 
-RTEC (Run-Time Event Calculus) is a logic programming framework for complex event recognition. It processes streams of timestamped events and recognizes complex patterns (fluents) that hold over time intervals.
+The Event Calculus is a logic-based formalism for representing and reasoning about events and their effects. The Run-Time Event Calculus (RTEC) is a Prolog programming implementation of the Event Calculus, that has been optimised for composite activity recognition. Below, we summarise the language of RTEC. 
 
-## Entity Types
+Following the Prolog convention, variables start with an upper-case letter, while predicates and constants start with a lower-case letter. Each rule ends with a full-stop “.”, while the head of a rule is separated from its body with “:-”. 
 
-### Events (instantaneous)
+A fluent is a property that may have different values at different points in time. The term F=V denotes that fluent F has value V.  Boolean fluents are a special case in which the possible values are “true” and “false”. 
 
-Events are point-in-time occurrences from the input stream.
+## RTEC predicates
+Below are the predicates of RTEC.
 
-```prolog
-% Declaration
-event(event_name/arity).
-inputEntity(event_name/arity).
+RTEC - Predicate 1: happensAt(E,T)
+Meaning: Event E occurs at time T
 
-% Usage in rules
-happensAt(event_name(Arg1, Arg2, ...), T).
+RTEC - Predicate 2: holdsAt(F=V,T)
+Meaning: The value of fluent F is V at time T
+
+RTEC - Predicate 3: holdsFor(F=V,I)
+Meaning: I is the list of the maximal intervals during which F=V holds continuously
+
+RTEC - Predicate 4: initiatedAt(F=V,T)
+Meaning: At time T a period of time for which F=V is initiated
+
+RTEC - Predicate 5: terminatedAt(F=V,T)
+Meaning: At time T a period of time for which F=V is terminated
+
+RTEC - Predicate 6: union_all(L,I)
+Meaning: I is the list of maximal intervals produced by the union of the lists of maximal intervals of list L
+
+RTEC - Predicate 7: intersect_all(L,I)
+Meaning: I is the list of maximal intervals produced by the intersection of the lists of maximal intervals of list L
+
+RTEC - Predicate 8: relative_complement_all(I',L,I)
+Meaning: I is the list of maximal intervals produced by the relative complement of the list of maximal intervals I' with respect to every list of maximal intervals of list L
+
+RTEC also includes two built-in events.
+
+Built-in event 1: start(F=V)
+Meaning: Event “start(F=V)” takes place at each starting point of each maximal interval of fluent-value pair F=V
+
+Built-in event 2: end(F=V)
+Meaning: Event “end(F=V)” takes place at each ending point of each maximal interval of fluent-value pair F=V
+
+
+## Simple Fluents
+There are two ways in which a composite activity may be defined in the language of RTEC. In the first case, a composite activity definition may be specified by means of rules with “initiatedAt(F=V, T)” or “terminatedAt(F=V, T)” in their head. This is called a simple fluent definition.
+
+The first body literal of an “initiatedAt(F=V,T)” rule is a positive “happensAt” predicate; this predicate is followed by a possibly empty set of positive or negative “happensAt” and “holdsAt” predicates. Negative predicates are prefixed with “not” which expresses negation-by-failure. In some cases, the body of an “initiatedAt(F=V,T)” rule may include predicates expressing background knowledge. 
+
+“terminatedAt(F=V,T)” rules are specified in a similar way.
+
+**Rule body constraints (simple fluents):**
+- Disjunction (`;`) is NOT permitted anywhere in the body of `initiatedAt` or `terminatedAt` rules.
+- Each clause must start with a positive `happensAt` literal.
+- Arithmetic comparisons (`>`, `<`, `=<`, `>=`, `=:=`, `=\=`) require both sides to be fully instantiated; call `thresholds/2` or other background predicates to bind threshold variables before using them in comparisons.
+
+## Deadline Fluents (fi/3 and p/1)
+
+Some simple fluents automatically transition from one value to another after a time deadline. This is expressed with two declarations:
+
+```
+fi(F=V1, F=V2, Duration)
+p(F=V1)
 ```
 
-### Simple Fluents (with inertia)
+- `fi(F=V1, F=V2, Duration)` — declares that if `F=V1` has been continuously true for `Duration` time units without explicit termination, RTEC automatically initiates `F=V2` (and terminates `F=V1`).
+- `p(F=V1)` — declares that `F=V1` has persistence: the auto-initiation at the deadline reuses existing starting points without re-evaluating the `initiatedAt` body.
 
-Simple fluents have values that persist over time until explicitly changed. They follow the "law of inertia" — once initiated, a value holds until terminated.
+These are used together to express "the activity can hold for at most Duration time before automatically transitioning to a different value."
 
-```prolog
-% Declaration
-simpleFluent(fluent_name/arity).
-outputEntity(fluent_name/arity).
+When using `fi/3`:
+- You must also declare grounding for the target value
+- The `=false` value is terminated automatically when `initiatedAt(F=true, T)` fires (inertia semantics reset all values at initiation time).
 
-% Initiation: fluent becomes Value at time T
-initiatedAt(fluent_name(Args)=Value, T) :-
-    happensAt(trigger_event(Args), T),
-    <additional_conditions>.
-
-% Termination: fluent stops being Value at time T
-terminatedAt(fluent_name(Args)=Value, T) :-
-    happensAt(end_event(Args), T),
-    <additional_conditions>.
-
-% Check current value at time T (in rule bodies)
-holdsAt(fluent_name(Args)=Value, T).
-```
-
-### Statically-Determined Fluents (no inertia)
-
-SD fluents are derived purely from interval operations on other fluents. They have no inertia — their value at any time is determined by the current state of their dependencies.
-
-```prolog
-% Declaration
-sDFluent(fluent_name/arity).
-outputEntity(fluent_name/arity).
-
-% Definition via interval operations
-holdsFor(fluent_name(Args)=Value, I) :-
-    holdsFor(dependency1(Args)=Value1, I1),
-    holdsFor(dependency2(Args)=Value2, I2),
-    <interval_operation>([I1, I2], I).
-```
-
-**Important**: SD fluents are defined with `holdsFor`, NOT `holdsAt`. They use interval operations, not point-in-time checks.
-
-## Interval Operations
-
-| Operation | Syntax | Description |
-|-----------|--------|-------------|
-| Union | `union_all([I1, I2, ...], I)` | I = I1 ∪ I2 ∪ ... |
-| Intersection | `intersect_all([I1, I2, ...], I)` | I = I1 ∩ I2 ∩ ... |
-| Complement | `relative_complement_all(I1, [I2, ...], I)` | I = I1 - I2 - ... |
-| Duration filter | `intDurGreater(I1, Duration, I)` | Intervals with duration > D |
-| Duration filter | `intDurLess(I1, Duration, I)` | Intervals with duration < D |
-
-## Deadlines (Force Initiation)
-
-Deadlines automatically change fluent values after a specified time.
-
-```prolog
-% After Duration time units, if From still holds, initiate To
-fi(fluent(Args)=From, fluent(Args)=To, Duration).
-```
-
-## Initial Values
-
-```prolog
-initially(fluent(Args)=Value).
-```
-
-## Start/End Events
-
-RTEC generates synthetic events when fluent values change:
-
-```prolog
-% Triggered when fluent becomes Value
-happensAt(start(fluent(Args)=Value), T).
-
-% Triggered when fluent stops being Value
-happensAt(end(fluent(Args)=Value), T).
-```
-
-These can be used in rule bodies to react to state changes.
-
-## Grounding Declarations
-
-Every fluent must have grounding declarations that specify valid instantiations:
-
-```prolog
-% For fluents
-grounding(fluent_name(X)=value) :- domain_predicate(X).
-
-% For events
-grounding(event_name(X, Y)) :- domain1(X), domain2(Y).
-```
-
-## Indexing (Optional)
-
-Indexing improves performance by grouping entities:
-
-```prolog
-index(event_name(X, Y), Y).
-```
-
-## Complete Example: Voting Status
-
-```prolog
-% Declarations
-simpleFluent(status/1).
-outputEntity(status/1).
-
-% Initial value
-initially(status(_M)=null).
-
-% Deadlines
-fi(status(M)=proposed, status(M)=null, 10).
-fi(status(M)=voting, status(M)=voted, 10).
-
-% Initiation rules
-initiatedAt(status(M)=proposed, T) :-
-    happensAt(propose(_P, M), T),
-    holdsAt(status(M)=null, T).
-
-initiatedAt(status(M)=voting, T) :-
-    happensAt(second(_S, M), T),
-    holdsAt(status(M)=proposed, T).
-
-initiatedAt(status(M)=voted, T) :-
-    happensAt(close_ballot(C, M), T),
-    role_of(C, chair),
-    holdsAt(status(M)=voting, T).
-
-initiatedAt(status(M)=null, T) :-
-    happensAt(declare(C, M, _), T),
-    role_of(C, chair),
-    holdsAt(status(M)=voted, T).
-
-% Grounding
-grounding(status(M)=null) :- motion(M).
-grounding(status(M)=proposed) :- motion(M).
-grounding(status(M)=voting) :- motion(M).
-grounding(status(M)=voted) :- motion(M).
-```
-
-## Complete Example: SD Fluent (Power)
-
-```prolog
-% Declaration
-sDFluent(pow/1).
-outputEntity(pow/1).
-
-% Power to propose exists when status is null
-holdsFor(pow(propose(_P, M))=true, I) :-
-    holdsFor(status(M)=null, I).
-
-% Power to vote exists when status is voting
-holdsFor(pow(vote(_V, M))=true, I) :-
-    holdsFor(status(M)=voting, I).
-
-% Grounding
-grounding(pow(propose(P, M))=true) :- person(P), motion(M).
-grounding(pow(vote(V, M))=true) :- person(V), motion(M).
-```
-
-## Common Patterns
-
-### OR condition (union)
-```prolog
-holdsFor(active(X)=true, I) :-
-    holdsFor(running(X)=true, I1),
-    holdsFor(walking(X)=true, I2),
-    union_all([I1, I2], I).
-```
-
-### AND condition (intersection)
-```prolog
-holdsFor(meeting(X,Y)=true, I) :-
-    holdsFor(close(X,Y)=true, I1),
-    holdsFor(facing(X,Y)=true, I2),
-    intersect_all([I1, I2], I).
-```
-
-### NOT condition (complement)
-```prolog
-holdsFor(idle(X)=true, I) :-
-    holdsFor(present(X)=true, I1),
-    holdsFor(active(X)=true, I2),
-    relative_complement_all(I1, [I2], I).
-```
-
-### Duration constraint
-```prolog
-holdsFor(loitering(X)=true, I) :-
-    holdsFor(stopped(X)=true, I1),
-    intDurGreater(I1, 1800, I).  % > 30 minutes
-```
+## Statically Defined Fluents
+The second way in which a composite activity may be defined in the language of RTEC concerns statically determined fluents. In this case, a composite activity definition may be specified by means of a rule with “holdsFor(F=V, I)” in its head. The body of such a rule may include “holdsFor” conditions for fluents other than F, as well as some of the interval manipulation constructs of RTEC, i.e. “union_all”, “intersect_all”, and “relative_complement_all”. In some cases, a “holdsFor(F=V, I)” rule may include predicates expressing background knowledge. A rule with “holdsFor(F=V, I)” in the head is called a statically determined fluent definition.
