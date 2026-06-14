@@ -17,23 +17,35 @@ RTEC_SCRIPTS = REPO_ROOT / "execution scripts"
 RTEC_EXAMPLES = REPO_ROOT / "examples"
 
 
+NVIDIA_BASE_URL = "https://integrate.api.nvidia.com/v1"
+
+
 @dataclass
 class AgentConfig:
     """Configuration for agent behavior."""
-    
+
     # LLM settings
     model: str = "gpt-4o"
     temperature: float = 0.0
     max_tokens: int = 4096
-    
+
+    # API overrides — set both to target a non-OpenAI endpoint (e.g. NVIDIA NIM).
+    # When None the OpenAI client uses OPENAI_API_KEY / its default base URL.
+    api_key: str | None = None
+    base_url: str | None = None
+
     # ReAct loop settings
     max_iterations: int = 20
     convergence_threshold: float = 0.95  # F1 score
-    
+
     # Verbosity
     show_thinking: bool = True
     show_tool_calls: bool = True
     show_tool_results: bool = True
+
+    # Debug: surface the redacted feedback the MODEL receives + the convergence
+    # verdict each compare_to_gold (operator-only; never shown to the model).
+    debug: bool = False
 
 
 @dataclass

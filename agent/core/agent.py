@@ -1,6 +1,7 @@
 """ReAct Agent for RTEC rule generation."""
 
 import json
+import re
 from typing import Callable
 from openai import OpenAI
 
@@ -16,6 +17,33 @@ from ..tools import (
     read_rules,
 )
 from .schemas import AgentState, AgentMessage, ToolCall, EvalReport, EvalSnapshotRecord
+from .convergence import Convergence, Candidate, Status
+from .feedback import to_feedback
+
+
+def _fmt_eval(report: EvalReport) -> str:
+    """Prepend a plain-text summary so the model reads the right F1 first."""
+    header = f"OVERALL micro_f1={report.micro_f1:.4f}  macro_f1={report.macro_f1:.4f}\n"
+    return header + report.model_dump_json()
+
+
+# Different providers expose chain-of-thought under different field names.
+_REASONING_FIELDS = ("reasoning_content", "reasoning")
+
+
+def _reasoning_of(msg) -> str | None:
+    """Surface chain-of-thought from whichever field the provider uses
+    (`reasoning_content`: deepseek/moonshot; `reasoning`: OpenRouter/others),
+    checking both direct attributes and the OpenAI SDK's `model_extra` catch-all.
+
+    Only GPT-4o narrates in plain `content`, which is why it was previously the
+    only model whose thinking was visible."""
+    extra = getattr(msg, "model_extra", None) or {}
+    for field in _REASONING_FIELDS:
+        val = getattr(msg, field, None) or extra.get(field)
+        if val:
+            return val
+    return None
 
 
 class RTECAgent:
@@ -44,7 +72,12 @@ class RTECAgent:
             on_tool_result: Callback when tool returns result
         """
         self.config = config or AgentConfig()
-        self.client = OpenAI()
+        client_kwargs: dict = {}
+        if self.config.api_key:
+            client_kwargs["api_key"] = self.config.api_key
+        if self.config.base_url:
+            client_kwargs["base_url"] = self.config.base_url
+        self.client = OpenAI(**client_kwargs)
         
         # Callbacks for observability
         self.on_thinking = on_thinking or (lambda x: None)
@@ -53,15 +86,15 @@ class RTECAgent:
         self.on_eval = on_eval or (lambda i, r, f: None)
         self.on_iteration = on_iteration or (lambda i: None)
         
-        # Tool dispatcher
+        # Tool dispatcher — only tools present in TOOL_DEFINITIONS.
+        # run_rtec: excluded (compare_to_gold calls it internally).
+        # Builder may only read its own output, never the expert answer key.
         self._tools = {
             "get_syntax_docs": lambda **_: get_syntax_docs(),
             "get_vocabulary": lambda app, **_: get_vocabulary(app).model_dump_json(),
             "compile_rules": lambda app, rules, **_: compile_rules(app, rules).model_dump_json(),
-            "run_rtec": lambda app, **_: json.dumps([r.model_dump() for r in run_rtec(app)]),
-            "compare_to_gold": lambda app, fluents=None, **_: compare_to_gold(app, fluents).model_dump_json(),
+            "compare_to_gold": lambda app, fluents=None, **_: _fmt_eval(compare_to_gold(app, fluents)),
             "generate_gold": lambda app, **_: generate_gold(app),
-            # Builder may only read its own output, never the expert answer key.
             "read_rules": lambda app, **_: read_rules(app, "generated"),
         }
     
@@ -127,81 +160,61 @@ class RTECAgent:
             except Exception:
                 pass
 
+        # Summarize run_rtec output if the tool is ever called via a legacy
+        # path — raw intervals are too large for context.
+        if name == "run_rtec":
+            try:
+                recs = json.loads(result)
+                if isinstance(recs, list):
+                    counts: dict[str, int] = {}
+                    for r in recs:
+                        k = r.get("fluent", "?")
+                        counts[k] = counts.get(k, 0) + 1
+                    result = json.dumps({
+                        "total_recognitions": len(recs),
+                        "per_fluent_count": counts,
+                        "note": (
+                            "Raw intervals omitted to save context. "
+                            "Call compare_to_gold for F1 scores and diffs."
+                        ),
+                    })
+            except Exception:
+                pass
+
         self.on_tool_result(name, result)
         return result
-    
-    def _eval_nudge(
-        self, current: EvalReport, previous: EvalReport | None
-    ) -> str | None:
-        """Return a targeted nudge message based on the evaluation result.
 
-        Fires when F1 is stuck (no improvement) OR when the fp/fn ratio is
-        extreme enough that the failure mode is unambiguous.  Returns None
-        when no specific advice can be given or when F1 already converged.
+    def _compile_nudge(self, compile_result: dict) -> str | None:
+        """Return a nudge when compile_rules succeeds but has singleton warnings.
+
+        Singleton variables almost always signal a predicate arity bug
+        (e.g. areaType(AreaType) instead of areaType(Area, AreaType)) that
+        silently makes the clause fail at runtime, producing F1=0 with no
+        other visible error.
         """
-        if current.micro_f1 >= self.config.convergence_threshold:
+        if not compile_result.get("success"):
             return None
-
-        total_tp = sum(s.tp for s in current.per_fluent)
-        total_fp = sum(s.fp for s in current.per_fluent)
-        total_fn = sum(s.fn for s in current.per_fluent)
-
-        stuck = (
-            previous is not None
-            and abs(current.micro_f1 - previous.micro_f1) < 0.001
+        warnings = compile_result.get("warnings", [])
+        if not warnings:
+            return None
+        singleton_vars: list[str] = []
+        for w in warnings:
+            m = re.search(r"Singleton variables: \[([^\]]+)\]", w)
+            if m:
+                singleton_vars.extend(v.strip() for v in m.group(1).split(","))
+        if not singleton_vars:
+            return None
+        var_list = ", ".join(dict.fromkeys(singleton_vars))
+        return (
+            f"⚠ Compiler singleton warning: variable(s) [{var_list}] appear in only "
+            "one predicate in their clause. You MUST fix ALL singleton warnings before "
+            "calling compare_to_gold. There are two kinds — fix each appropriately:\n\n"
+            "KIND 1 — Arity bug in a clause body (silent runtime failure): "
+            "A variable bound by one literal is not passed to the next. "
+            "Fix: use the correct predicate arity so the variable appears in both literals.\n\n"
+            "KIND 2 — Unused pattern variable in an `index/2` or `grounding/1` fact "
+            "Recompile after fixing all singletons, then call compare_to_gold."
         )
-        # Ratios are only meaningful when either side is non-zero
-        fp_dominated = total_fp > 10 * max(total_fn, 1)
-        fn_dominated = total_fn > 10 * max(total_fp, 1)
-        nothing_fires = total_tp == 0 and total_fp == 0
-
-        lines: list[str] = []
-
-        if stuck:
-            lines.append(
-                "⚠ F1 has not changed since the last iteration — your rules "
-                "are identical. You MUST make a concrete change to the Prolog "
-                "before calling compile_rules() again."
-            )
-
-        if nothing_fires:
-            lines.append(
-                "The fluent NEVER fires (tp=0, fp=0, fn>0). "
-                "Your initiatedAt condition is never satisfied. "
-                "Verify that every symbol you reference — event names, "
-                "area type values, threshold keys — exactly matches what "
-                "get_vocabulary() returns. A single wrong atom silently "
-                "makes the clause fail every time."
-            )
-        elif fp_dominated:
-            lines.append(
-                f"Recall is perfect but precision is very low "
-                f"(fp={total_fp:,}, fn={total_fn:,}). "
-                "The fluent holds for too long — the bug is in your "
-                "TERMINATION conditions, not initiation. "
-                "Common mistake: leavesArea(Vessel, X) never fires when X is "
-                "an area type name — leavesArea takes a specific area polygon "
-                "ID, not a type name. "
-                "To terminate when a vessel leaves an area that is tracked as "
-                "a fluent F=V, use the built-in derived event instead: "
-                "happensAt(end(F=V), T). "
-                "For example, to terminate when a vessel leaves the nearCoast "
-                "zone: happensAt(end(withinArea(Vessel, nearCoast)=true), T). "
-                "The end(F=V) event fires at each endpoint of every maximal "
-                "interval of F=V (documented in the syntax docs)."
-            )
-        elif fn_dominated:
-            lines.append(
-                f"Precision is high but recall is very low "
-                f"(fp={total_fp:,}, fn={total_fn:,}). "
-                "The fluent fires far less often than it should — your "
-                "INITIATION condition is too strict. "
-                "Try relaxing or removing a guard, or verify that all "
-                "referenced threshold keys and entity values are correct "
-                "by calling get_vocabulary()."
-            )
-
-        return "\n".join(lines) if lines else None
 
     def _record_eval(
         self,
@@ -238,17 +251,46 @@ class RTECAgent:
         state.last_eval = eval_result
         self.on_eval(iteration, eval_result, scoped_fluents)
 
+    @staticmethod
+    def _coalesce_system_messages(messages: list[dict]) -> list[dict]:
+        """Merge all leading system messages into one.
+
+        Llama-based models (e.g. via NVIDIA NIM) enforce a strict prompt
+        template that allows exactly one system message at position 0.
+        Sending multiple consecutive system messages causes a 500 error.
+        """
+        if not messages:
+            return messages
+        parts: list[str] = []
+        idx = 0
+        while idx < len(messages) and messages[idx].get("role") == "system":
+            parts.append(messages[idx]["content"])
+            idx += 1
+        if len(parts) <= 1:
+            return messages  # nothing to merge
+        merged = {"role": "system", "content": "\n\n".join(parts)}
+        return [merged] + messages[idx:]
+
     def _call_llm(self, messages: list[dict]) -> dict:
         """Call the LLM and return the response."""
         # Reasoning models (o1/o3/o4 series) use max_completion_tokens and do
         # not support temperature or system messages.
         is_reasoning = self.config.model.startswith(("o1", "o3", "o4"))
+        # Non-OpenAI endpoints (NVIDIA NIM, etc.) enforce a single system
+        # message at position 0 and don't accept tool_choice="auto".
+        is_compat_endpoint = self.config.base_url is not None
+        # NVIDIA NIM rejects tool_choice; most others (Groq, Ollama, Together)
+        # support it fine. Omit it only for NIM.
+        is_nvidia = self.config.base_url is not None and "nvidia" in (self.config.base_url or "")
+        if is_compat_endpoint:
+            messages = self._coalesce_system_messages(messages)
         kwargs: dict = {
             "model": self.config.model,
             "messages": messages,
             "tools": TOOL_DEFINITIONS,
-            "tool_choice": "auto",
         }
+        if not is_nvidia:
+            kwargs["tool_choice"] = "auto"
         if is_reasoning:
             kwargs["max_completion_tokens"] = self.config.max_tokens
         else:
@@ -286,6 +328,37 @@ class RTECAgent:
                     "verbatim (without it RTEC cannot resolve vessel/1 and will "
                     "crash):\n\n"
                     f"```prolog\n{vocab.preamble.strip()}\n```"
+                ),
+            })
+
+        # Inject the domain vocabulary signature so the model knows all available
+        # events, output fluents, entity domains, and threshold keys without
+        # needing to call get_vocabulary() (which is not in TOOL_DEFINITIONS).
+        sig_parts: list[str] = []
+        if vocab.events:
+            sig_parts.append(
+                "Input events (use in happensAt):\n"
+                + "\n".join(f"  {e}" for e in vocab.events)
+            )
+        if vocab.fluents:
+            sig_parts.append(
+                "Output fluents (unclassified — you decide simple vs SD from the NL request):\n"
+                + "\n".join(f"  {f}" for f in vocab.fluents)
+            )
+        if vocab.entities:
+            for etype, vals in vocab.entities.items():
+                sig_parts.append(f"Entity domain '{etype}': {', '.join(str(v) for v in vals)}")
+        if vocab.thresholds:
+            sig_parts.append(
+                "Named thresholds (bind with thresholds(key, Var) before use in arithmetic):\n"
+                + "\n".join(f"  {k}" for k in vocab.thresholds)
+            )
+        if sig_parts:
+            messages.append({
+                "role": "system",
+                "content": (
+                    "Domain vocabulary (reference — call get_vocabulary for the full structured view):\n\n"
+                    + "\n\n".join(sig_parts)
                 ),
             })
 
@@ -369,6 +442,17 @@ class RTECAgent:
         
         last_compare_fluents: list[str] | None = None
         compiled_since_last_eval = False
+        vocabulary_consulted = False
+        vocab_nudge_sent = False
+        silent_streak = 0  # consecutive iterations with no content and no tool calls
+
+        # Convergence is the SINGLE OWNER of the terminal decision (CONVERGED /
+        # EXHAUSTED / STALLED) and of return-best. The while below is only a
+        # safety ceiling for the case where the model never calls compare_to_gold.
+        conv = Convergence(
+            tau=self.config.convergence_threshold,
+            max_iters=self.config.max_iterations,
+        )
 
         # ReAct loop
         while state.iteration < self.config.max_iterations:
@@ -377,7 +461,22 @@ class RTECAgent:
             
             # Get LLM response
             response = self._call_llm(messages)
-            
+
+            # Surface reasoning-model chain-of-thought (lives in reasoning_content,
+            # not content) so thinking is visible for more than just GPT-4o.
+            reasoning = _reasoning_of(response)
+            if reasoning:
+                self.on_thinking(reasoning)
+            elif self.config.debug and not response.content:
+                # Diagnose a model that surfaces no thinking: show which extra
+                # fields its message actually carries, so we know where (or whether)
+                # reasoning lives for this provider.
+                extra = getattr(response, "model_extra", None) or {}
+                self.on_thinking(
+                    "[debug] no content/reasoning surfaced this turn. "
+                    f"message extra fields: {list(extra.keys()) or 'none'}"
+                )
+
             # Handle thinking/content
             if response.content:
                 self.on_thinking(response.content)
@@ -390,9 +489,10 @@ class RTECAgent:
             
             # Handle tool calls
             if response.tool_calls:
+                silent_streak = 0
                 tool_calls = []
                 tool_messages = []
-                post_nudge: str | None = None
+                compile_nudge: str | None = None
 
                 for tc in response.tool_calls:
                     name = tc.function.name
@@ -406,40 +506,73 @@ class RTECAgent:
                         try:
                             payload = json.loads(result)
                             if payload.get("success"):
+                                new_rules = args.get("rules")
+                                # Unchanged-rule detector (structural, no leak): resubmitting
+                                # byte-identical rules cannot change F1, so flag it and stop the
+                                # model from spinning on the same candidate.
+                                if new_rules is not None and new_rules == state.current_rules:
+                                    compile_nudge = (
+                                        "⚠ These rules are BYTE-IDENTICAL to your previous "
+                                        "compile — re-evaluating them will return the exact same "
+                                        "F1. Make a concrete change to the Prolog (different "
+                                        "events, guards, or TERMINATION conditions) before "
+                                        "compiling again; do not resubmit the same rules."
+                                    )
                                 compiled_since_last_eval = True
-                                state.current_rules = args.get("rules")
+                                state.current_rules = new_rules
+                            # nudge = self._compile_nudge(payload)
+                            # if nudge:
+                            #     compile_nudge = nudge
                         except Exception:
                             pass
+
+                    # compare_to_gold: parse the report ONCE, then (a) redact it for
+                    # the model (Gap 1 leak firewall) and (b) record it + feed
+                    # Convergence (the single owner of the terminal decision).
+                    content_for_model = result
+                    if name == "compare_to_gold":
+                        try:
+                            eval_result = EvalReport.model_validate_json(
+                                result[result.index("{"):]
+                            )
+                            content_for_model = to_feedback(eval_result)  # model view: redacted
+                            scoped = args.get("fluents")
+                            last_compare_fluents = scoped
+                            compiled_since_last_eval = False
+                            self._record_eval(state, state.iteration, eval_result, scoped)
+                            # state.iteration is 1-indexed; Convergence is 0-indexed.
+                            status = conv.update(Candidate(
+                                rules=state.current_rules or "",
+                                per_fluent_f1=eval_result.micro_f1,
+                                macro_f1=eval_result.macro_f1,
+                                iteration=state.iteration - 1,
+                            ))
+                            if status is not Status.RUNNING:
+                                state.terminal_status = status.value
+                                state.converged = status is Status.CONVERGED
+                            # Debug: surface what the MODEL actually received + the
+                            # convergence verdict (operator-only, never the model).
+                            if self.config.debug:
+                                self.on_tool_result("feedback → model", content_for_model)
+                                self.on_tool_result(
+                                    "convergence",
+                                    f"status={status.value}  "
+                                    f"best_f1={conv.best.per_fluent_f1:.3f}  {conv.detail}",
+                                )
+                        except Exception:
+                            content_for_model = result
 
                     tool_messages.append({
                         "role": "tool",
                         "tool_call_id": tc.id,
-                        "content": result
+                        "content": content_for_model
                     })
 
                     state.messages.append(AgentMessage(
                         role="tool",
-                        content=result,
+                        content=content_for_model,
                         tool_call_id=tc.id
                     ))
-
-                    # Check for convergence and compute diagnostic nudge
-                    if name == "compare_to_gold":
-                        try:
-                            eval_result = EvalReport.model_validate_json(result)
-                            scoped = args.get("fluents")
-                            last_compare_fluents = scoped
-                            compiled_since_last_eval = False
-                            nudge = self._eval_nudge(eval_result, state.last_eval)
-                            self._record_eval(
-                                state, state.iteration, eval_result, scoped
-                            )
-                            if eval_result.micro_f1 >= self.config.convergence_threshold:
-                                state.converged = True
-                            elif nudge:
-                                post_nudge = nudge
-                        except Exception:
-                            pass
 
                 # Add assistant message with tool calls
                 messages.append({
@@ -458,43 +591,75 @@ class RTECAgent:
                     ]
                 })
 
-                # Add tool results, then any diagnostic nudge
+                # Add tool results, then any diagnostic nudges
                 messages.extend(tool_messages)
-                if post_nudge and not state.converged:
-                    messages.append({"role": "user", "content": post_nudge})
+                if compile_nudge and not state.converged:
+                    messages.append({"role": "user", "content": compile_nudge})
 
-                if state.converged:
+                # Convergence is the single stop authority: break on ANY terminal
+                # status (CONVERGED / EXHAUSTED / STALLED), not just success.
+                if state.terminal_status is not None:
                     break
             else:
                 # No tool calls - check if we should continue or stop
                 # Don't exit early if F1 is still low and we have iterations left
                 if state.last_eval is None or state.last_eval.micro_f1 < self.config.convergence_threshold:
-                    # Prompt the model to take action with specific guidance
-                    nudge = (
-                        "You must call compile_rules() to make progress. "
-                        "IMPORTANT: Include ALL rules in one compile call - "
-                        "rules for the target fluent AND every fluent it depends on. "
-                        "Each compile_rules() REPLACES all previous rules."
-                    )
+                    silent_streak += 1
+                    if silent_streak == 1:
+                        nudge = (
+                            "You must call compile_rules() to make progress. "
+                            "IMPORTANT: Include ALL rules in one compile call — "
+                            "rules for the target fluent AND every fluent it depends on. "
+                            "Each compile_rules() REPLACES all previous rules."
+                        )
+                    else:
+                        # Escalate: give a concrete example structure so the model
+                        # has something to act on even if context is confusing.
+                        f1_str = f"{state.last_eval.micro_f1:.3f}" if state.last_eval else "unknown"
+                        nudge = (
+                            f"[Nudge #{silent_streak}] Current F1={f1_str}. "
+                            "You are NOT converged. Call compile_rules(app, rules) RIGHT NOW "
+                            "with the complete rule set. Do not explain — just call the tool."
+                        )
+                    self.on_thinking(f"[no tool call — injecting nudge #{silent_streak}]")
                     messages.append({"role": "user", "content": nudge})
                     continue
                 else:
                     # Agent has good F1, can stop
                     break
 
-        # Final eval if the agent compiled/run but skipped compare_to_gold
-        if (
-            not state.converged
-            and compiled_since_last_eval
-            and state.iteration < self.config.max_iterations
-        ):
+        # If the last compile was never scored, score it once so a potentially
+        # best candidate isn't dropped (replaces the old, dead post-loop guard,
+        # whose `iteration < max_iterations` condition was always false on exhaustion).
+        if compiled_since_last_eval and state.current_rules and state.terminal_status is None:
             try:
                 eval_result = compare_to_gold(app, last_compare_fluents)
                 self._record_eval(
                     state, state.iteration, eval_result, last_compare_fluents
                 )
-                if eval_result.micro_f1 >= self.config.convergence_threshold:
-                    state.converged = True
+                status = conv.update(Candidate(
+                    rules=state.current_rules,
+                    per_fluent_f1=eval_result.micro_f1,
+                    macro_f1=eval_result.macro_f1,
+                    iteration=state.iteration - 1,
+                ))
+                if status is not Status.RUNNING:
+                    state.terminal_status = status.value
+                    state.converged = status is Status.CONVERGED
+            except Exception:
+                pass
+
+        # The loop may exit via the safety ceiling without conv declaring terminal
+        # (e.g. the model never called compare_to_gold) -> that is EXHAUSTED.
+        if state.terminal_status is None:
+            state.terminal_status = Status.EXHAUSTED.value
+
+        # Return-best: hand back the highest-F1 candidate, not whatever compiled
+        # last. Recompile it so the on-disk artifact reflects the best, not the last.
+        if conv.best.rules and conv.best.rules != state.current_rules:
+            try:
+                compile_rules(app, conv.best.rules)
+                state.current_rules = conv.best.rules
             except Exception:
                 pass
         

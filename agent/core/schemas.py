@@ -149,3 +149,4 @@ class AgentState(BaseModel):
     last_eval: EvalReport | None = None
     eval_history: list[EvalSnapshotRecord] = Field(default_factory=list)
     converged: bool = False
+    terminal_status: str | None = None  # CONVERGED / EXHAUSTED / STALLED

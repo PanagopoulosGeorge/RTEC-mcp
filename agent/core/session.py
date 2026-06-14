@@ -67,7 +67,7 @@ class RouterSession:
     ):
         self.app = app
         self.config = config or AgentConfig()
-        self.client = OpenAI()
+        self.client = OpenAI(api_key=self.config.api_key, base_url=self.config.base_url)
         self._resolve_request = resolve_request
         self._on_build_start = on_build_start
 

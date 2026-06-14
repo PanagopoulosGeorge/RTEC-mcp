@@ -169,21 +169,18 @@ patterns:
     vessel of this type, "normal", i.e., within the expected bounds for the speed
     of a vessel of this type, and "above" the maximum speed expected for a vessel
     of this type. The activity ends when the speed of the vessel falls below the
-    minimum speed expected for a moving vessel (thresholds movingMin).
+    minimum speed expected for a moving vessel.
     When there is a gap in signal transmissions, we can no longer assume that
     the vessel's speed remains the same.
-    Use typeSpeed(Type, Min, Max, Avg) and vesselType(Vessel, Type) for bounds.
 
   underWay: >
     This activity lasts as long as a vessel is not stopped.
-    It is the union of all movingSpeed intervals (below, normal, and above).
 
   drifting: >
     This activity expresses that a vessel is drifting due to sea currents or
     harsh weather conditions. The activity starts when the angle difference
-    between the actual direction of the vessel (CourseOverGround) and the
-    direction of its bow (TrueHeading) exceeds a maximum limit
-    (thresholds adriftAngThr), expressing a significant divergence.
+    between the actual direction of the vessel and the direction of its bow
+    exceeds a maximum limit, expressing a significant divergence.
     The activity ends when this angle difference falls below the aforementioned
     threshold or when the vessel stops moving.
     Note: TrueHeading=511.0 means heading is unavailable; exclude this case.
@@ -191,15 +188,14 @@ patterns:
   anchoredOrMoored: >
     The activity lasts as long as the vessel is idle in an anchorage area that
     is far from all ports, or is idle near some port.
-    Only activities whose duration exceeds thresholds(aOrMTime) are recognised.
 
   tuggingSpeed: >
     The activity starts when the vessel is sailing at a speed that is within
-    the expected bounds for a tugging operation (thresholds tuggingMin,
-    tuggingMax). The activity ends when the vessel is no longer sailing at a
-    speed that is within the expected bounds for a tugging operation.
-    When there is a gap in signal transmissions, we can no longer assume
-    that the vessel's speed remains within the aforementioned bounds.
+    the expected bounds for a tugging operation. The activity ends when the
+    vessel is no longer sailing at a speed that is within the expected bounds
+    for a tugging operation. When there is a gap in signal transmissions, we
+    can no longer assume that the vessel's speed remains within the
+    aforementioned bounds.
 
   tugging: >
     The activity involves a vessel being pulled or towed by a tugboat.
@@ -207,15 +203,14 @@ patterns:
     tugboat, are sailing close to each other and their speed falls within the
     expected bounds for a tugging operation. Tugging operations cannot be
     arbitrarily brief, i.e., the duration of a tugging operation exceeds a
-    minimum temporal threshold (thresholds tuggingTime).
+    minimum temporal threshold.
 
   rendezVous: >
     This activity lasts as long as two vessels are close to each other, their
     speed is low and they are far from the coastline. Furthermore, neither of
     the two vessels should be a tug boat or a pilot vessel. We are interested
     in vessel meetings whose duration exceeds the expected minimum time required
-    for a suspicious action, like an illegal cargo transfer
-    (thresholds rendezvousTime).
+    for a suspicious action, like an illegal cargo transfer.
 
   trawlSpeed: >
     The activity starts when the vessel is sailing in a fishing area and its speed is within the expected 
@@ -228,28 +223,23 @@ patterns:
     typical for a trawling activity. The activity starts when the vessel changes
     its heading while sailing within a fishing area.
     The activity ends when the vessel leaves the fishing area.
-    Additionally, trawlingMovement has a deadline: after trawlingMovement=true
-    has held continuously for trawlingCrs seconds without explicit termination,
-    it automatically transitions to trawlingMovement=false. Express this with
-    fi(trawlingMovement(Vessel)=true, trawlingMovement(Vessel)=false, TrawlingCrs)
-    and p(trawlingMovement(_Vessel)=true). You must also add grounding for =false.
 
   trawling: >
-    Trawling is a common fishing method that involves a boat pulling a fishing
-    net through the water behind it. Trawling lasts as long as the vessel is
-    sailing in a fishing area, its speed is within the expected bounds for a
-    trawling activity and it is sailing in a manner that is typical for a
-    trawling activity. Trawling activities cannot be arbitrarily brief, i.e.,
-    the duration of trawling activities exceeds a minimum temporal threshold
-    (thresholds trawlingTime).
+    Trawling is a common fishing method that involves a boat - trawler -
+    pulling a fishing net through the water behind it. Trawling lasts as long
+    as the vessel is sailing in a fishing area, its speed is within the expected
+    bounds for a trawling activity and it is sailing in a manner that is typical
+    for a trawling activity. Trawling activities cannot be arbitrarily brief,
+    i.e., the duration of trawling activities exceeds a minimum temporal
+    threshold.
 
   sarSpeed: >
     The activity starts when the speed of the vessel exceeds the minimum
     expected speed of a vessel that is engaged in a search-and-rescue (SAR)
-    operation (thresholds sarMinSpeed). The activity ends when the speed of the
-    vessel falls below the aforementioned minimum speed threshold.
-    When there is a gap in signal transmissions, we can no longer assume that
-    the vessel's speed remains above the aforementioned threshold.
+    operation. The activity ends when the speed of the vessel falls below the
+    aforementioned minimum speed threshold. When there is a gap in signal
+    transmissions, we can no longer assume that the vessel's speed remains
+    above the aforementioned threshold.
 
   sarMovement: >
     This activity expresses that the vessel is moving in a manner that is
@@ -261,9 +251,8 @@ patterns:
   inSAR: >
     This activity expresses that the vessel is performing a search-and-rescue
     (SAR) operation. The activity lasts as long as the vessel is sailing at a
-    speed that is typical for a vessel involved in a SAR operation
-    (sarSpeed=true) and the vessel is moving in a manner that is typical for
-    such an operation (sarMovement=true).
+    speed that is typical for a vessel involved in a SAR operation and the
+    vessel is moving in a manner that is typical for such an operation.
 
   loitering: >
     This activity expresses that the vessel is in a particular area for a long
@@ -271,16 +260,15 @@ patterns:
     has low speed or is idle far from all ports, and it is not near a coast,
     it is not anchored, and it is not moored. The activity cannot be arbitrarily
     brief, i.e., we detect loitering when the temporal extent during which the
-    vessel is loafing around exceeds a minimum threshold
-    (thresholds loiteringTime).
+    vessel is loafing around exceeds a minimum threshold.
 
   pilotOps: >
-    This activity expresses that a highly experienced sailor - a maritime pilot
-    - approaches with a pilot vessel, boards and manoeuvres another vessel
-    through dangerous or congested areas. The activity lasts as long as the two
-    involved vessels, one of which being a pilot vessel, are sailing close to
-    each other, each having a low speed or being idle far from all ports, and
-    are not within a coastal area.
+    This activity expresses that a highly experienced sailor in navigation in
+    specific areas - a maritime pilot - approaches with a pilot vessel, boards
+    and manoeuvres another vessel through dangerous or congested areas. The
+    activity lasts as long as the two involved vessels, one of which being a
+    pilot vessel, are sailing close to each other, each having a low speed or
+    being idle far from all ports, and are not within a coastal area.
 
 # Required Prolog boilerplate — must appear verbatim at the top of every
 # compile_rules() call for RTEC to run correctly.

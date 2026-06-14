@@ -12,6 +12,7 @@ from typing import Callable
 from openai import OpenAI
 
 from ..config import AgentConfig, PROMPTS_DIR
+from .agent import _reasoning_of
 from ..tools import (
     QA_TOOL_DEFINITIONS,
     get_syntax_docs,
@@ -19,6 +20,20 @@ from ..tools import (
     read_rules,
     run_rtec,
 )
+
+
+def _coalesce_system_messages(messages: list[dict]) -> list[dict]:
+    """Merge all leading system messages into one (required by Llama/NVIDIA NIM)."""
+    if not messages:
+        return messages
+    parts: list[str] = []
+    idx = 0
+    while idx < len(messages) and messages[idx].get("role") == "system":
+        parts.append(messages[idx]["content"])
+        idx += 1
+    if len(parts) <= 1:
+        return messages
+    return [{"role": "system", "content": "\n\n".join(parts)}] + messages[idx:]
 
 
 def _recognize(app: str, source: str = "generated") -> str:
@@ -42,7 +57,12 @@ class QAAgent:
         on_tool_result: Callable[[str, str], None] | None = None,
     ):
         self.config = config or AgentConfig()
-        self.client = OpenAI()
+        client_kwargs: dict = {}
+        if self.config.api_key:
+            client_kwargs["api_key"] = self.config.api_key
+        if self.config.base_url:
+            client_kwargs["base_url"] = self.config.base_url
+        self.client = OpenAI(**client_kwargs)
 
         self.on_thinking = on_thinking or (lambda x: None)
         self.on_tool_call = on_tool_call or (lambda n, a: None)
@@ -83,14 +103,19 @@ class QAAgent:
         return result
 
     def _call_llm(self, messages: list[dict]) -> dict:
-        response = self.client.chat.completions.create(
-            model=self.config.model,
-            messages=messages,
-            tools=QA_TOOL_DEFINITIONS,
-            tool_choice="auto",
-            temperature=self.config.temperature,
-            max_tokens=self.config.max_tokens,
-        )
+        is_compat_endpoint = self.config.base_url is not None
+        if is_compat_endpoint:
+            messages = _coalesce_system_messages(messages)
+        kwargs: dict = {
+            "model": self.config.model,
+            "messages": messages,
+            "tools": QA_TOOL_DEFINITIONS,
+            "temperature": self.config.temperature,
+            "max_tokens": self.config.max_tokens,
+        }
+        if not is_compat_endpoint:
+            kwargs["tool_choice"] = "auto"
+        response = self.client.chat.completions.create(**kwargs)
         return response.choices[0].message
 
     def ask(self, app: str, question: str, history: list[dict] | None = None) -> str:
@@ -115,6 +140,11 @@ class QAAgent:
         while iterations < self.config.max_iterations:
             iterations += 1
             response = self._call_llm(messages)
+
+            # Surface reasoning-model chain-of-thought (reasoning_content, not content).
+            reasoning = _reasoning_of(response)
+            if reasoning:
+                self.on_thinking(reasoning)
 
             # No tool calls -> this is the final answer.
             if not response.tool_calls:

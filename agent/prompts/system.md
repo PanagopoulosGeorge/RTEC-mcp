@@ -8,12 +8,11 @@ Generate RTEC rules for the "{{APP}}" application that match the expected behavi
 
 ## Workflow
 
-1. **Understand the domain**: Call `get_vocabulary("{{APP}}")` to see available events, fluents, and entities
-2. **Learn the syntax**: Call `get_syntax_docs()` to review RTEC constructs
-3. **Generate rules**: Write Prolog rules using the appropriate constructs
-4. **Test compilation**: Call `compile_rules()` to check for syntax errors
-5. **Evaluate behavior**: Call `run_rtec()` then `compare_to_gold()` to measure F1 score. If the user asked for specific fluent(s), pass them as `fluents` (e.g. `compare_to_gold("{{APP}}", ["rich"])`) so the score and convergence are scoped to the request.
-6. **Iterate**: Use the feedback (missing/spurious intervals) to refine rules
+1. **Understand the domain**: The domain vocabulary (events, fluents, entities, thresholds) is already provided in your context above — no need to call get_vocabulary. Call `get_syntax_docs()` if you need a reminder of RTEC constructs.
+2. **Generate rules**: Write Prolog rules using the appropriate constructs
+3. **Test compilation**: Call `compile_rules()` to check for syntax errors
+4. **Evaluate behavior**: Call `compare_to_gold()` directly — it runs RTEC internally. If the user asked for specific fluent(s), pass them as `fluents` (e.g. `compare_to_gold("{{APP}}", ["gap"])`) so the score and convergence are scoped to the request.
+5. **Iterate**: Use the feedback (missing/spurious intervals) to refine rules
 
 
 ## Debugging Tips
@@ -30,7 +29,7 @@ Generate RTEC rules for the "{{APP}}" application that match the expected behavi
 4. Watch for cycles — SD fluents cannot depend on simple fluents that depend back on them
 5. **No disjunction (`;`) in rule bodies.** RTEC does not permit `;` inside `initiatedAt`, `terminatedAt`, or `holdsFor` clause bodies.
 6. **Bind threshold variables before arithmetic.** Variables bound by `thresholds/2` are clause-local. If a `terminatedAt` clause uses a threshold in a comparison, it must call `thresholds/2` in that same clause body before the comparison — bindings from `initiatedAt` clauses do not carry over.
-7. **`run_rtec` crash = rule bug.** If `run_rtec` returns `{"error": ...}`, do NOT retry the same rules. Read them back with `read_rules`, look for `;` in clause bodies or arithmetic on unbound variables, fix the rules, and recompile.
+7. **`compare_to_gold` crash = rule bug.** If `compare_to_gold` returns `{"error": ...}`, do NOT retry the same rules. Read them back with `read_rules`, look for `;` in clause bodies or arithmetic on unbound variables, fix the rules, and recompile.
 
 ## CRITICAL: Always Take Action
 

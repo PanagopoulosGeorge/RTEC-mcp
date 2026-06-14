@@ -19,26 +19,16 @@ python -m agent.cli vocab toy         # show events/fluents/entities for an app
 python -m agent.cli syntax            # dump the RTEC grammar reference (prompts/syntax.md)
 python -m agent.cli gold toy          # generate gold_intervals.txt from expert_rules (run ONCE per app)
 python -m agent.cli chat toy          # interactive ReAct session
-python -m agent.cli translate toy "A person is happy as long as they are rich or at the pub"  # stage 1 only: NL -> typed spec
-python -m agent.cli run toy "A person is happy as long as they are rich or at the pub"        # stage 1 + stage 2 (use --no-translate to pass NL through verbatim)
+python -m agent.cli run toy "A person is happy as long as they are rich or at the pub"        # NL -> Prolog rules via the ReAct loop
 ```
 
 `chat`/`run` take `--model` (default `gpt-4o`) and `--max-iter` (default 10). **`OPENAI_API_KEY` must be set** — `RTECAgent` constructs a bare `OpenAI()` client. The LLM backend is OpenAI chat-completions function-calling, *not* the Anthropic API.
 
 There is no automated test suite here: `agent/tests/` currently contains only stale `__pycache__` (the former `demo_chat`/`demo_maritime` scripts are gone). `[dev]` pulls in pytest, but there are no `test_*.py` files to run yet.
 
-## Two-stage pipeline (stage 1 = parse, stage 2 = build)
-
-A free-form request is handled in two decoupled stages so language understanding and Prolog synthesis can fail — and be evaluated — independently:
-
-1. **Stage 1: grounded semantic parser** (`tools/translate.py::translate_request`). NL + the domain *signature* → a typed `FluentSpec` (the IR, in `core/schemas.py`). It is a single OpenAI call (`prompts/translate_system.md`, no ReAct loop) that maps NL phrases onto known vocabulary symbols and connectives ("or"→`union`, "and"→`intersect`, "but not"→`complement`) and decides `kind` (`simple_fluent` vs `sd_fluent`) from the NL itself. `_validate` then checks every referenced symbol/value exists in the signature, returning a `TranslationResult` (spec + grounding errors/warnings + a rendered `brief`). The parser never sees the target's definition, so it cannot leak the answer. Gold for this stage is `apps/<app>/gold_specs.yaml`.
-2. **Stage 2: the ReAct convergence loop** below, fed the parser's `brief` instead of the raw sentence.
-
-`cli.py::run` chains them (`--no-translate` skips stage 1); `cli.py::translate` runs stage 1 alone. **Signature vs. specification:** `vocabulary.yaml` holds only the signature (what symbols exist — legitimate input); per-fluent specifications (how each fluent is defined) live in `gold_specs.yaml` as gold, not input. The fluent list in the signature is deliberately **unclassified** (no `simple_fluents`/`sd_fluents` split) — the translator decides `kind` from the NL, so the signature cannot leak it.
-
 ## Architecture: the ReAct convergence loop
 
-The whole system exists to turn a natural-language request into Prolog rules that reproduce the behavior of a hidden `expert_rules.prolog`, measured by interval-level F1. The loop lives in `core/agent.py::RTECAgent.run()`:
+The whole system turns a natural-language request directly into Prolog rules that reproduce the behavior of a hidden `expert_rules.prolog`, measured by interval-level F1. There is no intermediate representation: the raw NL (or the pattern description from `vocabulary.yaml`) is passed straight to the ReAct loop. The loop lives in `core/agent.py::RTECAgent.run()`:
 
 1. **System prompt** (`prompts/system.md`, `{{APP}}` substituted) primes the model with RTEC concepts and hard behavioral constraints (see "Prompt invariants" below).
 2. **Think → Act → Observe.** Each iteration calls OpenAI with `TOOL_DEFINITIONS` and `tool_choice="auto"`. Tool calls are dispatched through `self._tools` (a dict of lambdas wrapping the real tool functions; results are serialized back as JSON strings into the message history).
@@ -68,7 +58,6 @@ Apps live flat under `agent/apps/<name>/` (toy, voting, maritime), **not** in th
 agent/apps/<name>/
   config.yaml              # window_size, step, start_time, end_time, clock_tick (+ free-text description)
   vocabulary.yaml          # SIGNATURE ONLY: events / fluents (unclassified) / entities / patterns (no per-fluent definitions)
-  gold_specs.yaml          # gold for stage 1: example NL request -> expected typed FluentSpec, per fluent
   expert_rules.prolog      # ground-truth rules; source of the gold standard
   expert_rules_compiled.prolog
   input_stream.csv         # the event stream fed to RTEC

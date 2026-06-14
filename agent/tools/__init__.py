@@ -18,37 +18,47 @@ __all__ = [
     "list_apps",
 ]
 
-# Tool definitions for LLM function calling
+# ── Shared schema objects ──────────────────────────────────────────────────────
+# Defined once and referenced by both TOOL_DEFINITIONS and QA_TOOL_DEFINITIONS
+# so each list is independent (no fragile index references).
+
+_GET_SYNTAX_DOCS_SCHEMA = {
+    "type": "function",
+    "function": {
+        "name": "get_syntax_docs",
+        "description": "Get RTEC syntax documentation including grammar rules, constructs (initiatedAt, terminatedAt, holdsFor, etc.), and examples.",
+        "parameters": {
+            "type": "object",
+            "properties": {},
+            "required": []
+        }
+    }
+}
+
+_GET_VOCABULARY_SCHEMA = {
+    "type": "function",
+    "function": {
+        "name": "get_vocabulary",
+        "description": "Get the available vocabulary (events, fluents, entities, thresholds) for an application domain.",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "app": {
+                    "type": "string",
+                    "description": "Application name (e.g., 'voting', 'maritime')"
+                }
+            },
+            "required": ["app"]
+        }
+    }
+}
+
+# ── Builder tool definitions ───────────────────────────────────────────────────
+# run_rtec is excluded: compare_to_gold calls it internally, so an explicit
+# run_rtec call before compare_to_gold doubles RTEC execution for no gain.
 TOOL_DEFINITIONS = [
-    {
-        "type": "function",
-        "function": {
-            "name": "get_syntax_docs",
-            "description": "Get RTEC syntax documentation including grammar rules, constructs (initiatedAt, terminatedAt, holdsFor, etc.), and examples.",
-            "parameters": {
-                "type": "object",
-                "properties": {},
-                "required": []
-            }
-        }
-    },
-    {
-        "type": "function", 
-        "function": {
-            "name": "get_vocabulary",
-            "description": "Get the available vocabulary (events, fluents, entities) for an application domain.",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "app": {
-                        "type": "string",
-                        "description": "Application name (e.g., 'voting', 'maritime')"
-                    }
-                },
-                "required": ["app"]
-            }
-        }
-    },
+    _GET_SYNTAX_DOCS_SCHEMA,
+    _GET_VOCABULARY_SCHEMA,
     {
         "type": "function",
         "function": {
@@ -62,7 +72,7 @@ TOOL_DEFINITIONS = [
                         "description": "Application name"
                     },
                     "rules": {
-                        "type": "string", 
+                        "type": "string",
                         "description": "Prolog rules to compile (initiatedAt, terminatedAt, holdsFor clauses, etc.)"
                     }
                 },
@@ -73,25 +83,13 @@ TOOL_DEFINITIONS = [
     {
         "type": "function",
         "function": {
-            "name": "run_rtec",
-            "description": "Run RTEC event recognition using the currently compiled rules. Returns recognition intervals.",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "app": {
-                        "type": "string",
-                        "description": "Application name"
-                    }
-                },
-                "required": ["app"]
-            }
-        }
-    },
-    {
-        "type": "function",
-        "function": {
             "name": "compare_to_gold",
-            "description": "Compare current recognition results to gold standard intervals. Returns F1 score and interval differences (false positives, false negatives). Pass `fluents` to scope the score (and convergence) to only the fluent(s) the user asked for; omit it to evaluate the whole event description.",
+            "description": (
+                "Compile, run RTEC, and compare results against the gold standard. "
+                "Returns F1 score and interval differences (false positives, false negatives). "
+                "Pass `fluents` to scope the score (and convergence) to only the fluent(s) "
+                "the user asked for; omit it to evaluate the whole event description."
+            ),
             "parameters": {
                 "type": "object",
                 "properties": {
@@ -102,7 +100,11 @@ TOOL_DEFINITIONS = [
                     "fluents": {
                         "type": "array",
                         "items": {"type": "string"},
-                        "description": "Optional fluent names to scope the comparison to, e.g. [\"rich\"]. Only these fluents count toward per_fluent, diffs, and the F1 used for convergence. Omit to evaluate every fluent in the gold standard."
+                        "description": (
+                            "Optional fluent names to scope the comparison, e.g. [\"gap\"]. "
+                            "Only these fluents count toward per_fluent, diffs, and the F1 "
+                            "used for convergence. Omit to evaluate every fluent in the gold standard."
+                        )
                     }
                 },
                 "required": ["app"]
@@ -130,7 +132,12 @@ TOOL_DEFINITIONS = [
         "type": "function",
         "function": {
             "name": "read_rules",
-            "description": "Read back the rules you most recently compiled (generated_rules.prolog). Useful before a new compile_rules() call to recall every fluent you defined, since compile_rules() REPLACES the whole rule set. Returns an error if you have not compiled anything yet.",
+            "description": (
+                "Read back the rules you most recently compiled (generated_rules.prolog). "
+                "Useful before a new compile_rules() call to recall every fluent you defined, "
+                "since compile_rules() REPLACES the whole rule set. "
+                "Returns an error if you have not compiled anything yet."
+            ),
             "parameters": {
                 "type": "object",
                 "properties": {
@@ -146,10 +153,13 @@ TOOL_DEFINITIONS = [
 ]
 
 
-# Read-only tools for the QA agent. These never compile or mutate an app.
+# ── QA agent tool definitions ──────────────────────────────────────────────────
+# Read-only tools: never compile or mutate an app.
+# get_vocabulary is included here so the QA agent can answer questions about
+# the domain vocabulary (events, entities, thresholds) on demand.
 QA_TOOL_DEFINITIONS = [
-    TOOL_DEFINITIONS[0],  # get_syntax_docs
-    TOOL_DEFINITIONS[1],  # get_vocabulary
+    _GET_SYNTAX_DOCS_SCHEMA,
+    _GET_VOCABULARY_SCHEMA,
     {
         "type": "function",
         "function": {

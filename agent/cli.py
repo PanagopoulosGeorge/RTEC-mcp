@@ -1,13 +1,15 @@
 """RTEC ReAct Agent CLI."""
 
+import os
 import click
 from rich.console import Console
 from rich.panel import Panel
 from rich.syntax import Syntax
 from rich.markdown import Markdown
+from rich.markup import escape
 import json
 
-from .config import AgentConfig, APPS_DIR
+from .config import AgentConfig, APPS_DIR, NVIDIA_BASE_URL
 from .core.agent import RTECAgent
 from .core.qa_agent import QAAgent
 from .core.session import RouterSession
@@ -17,6 +19,37 @@ from .tools import (
     list_apps,
     get_syntax_docs,
 )
+
+
+def _make_config(
+    model: str,
+    max_iter: int,
+    nvidia: bool,
+    api_key: str | None,
+    base_url: str | None,
+    **kwargs,
+) -> AgentConfig:
+    """Build AgentConfig, resolving NVIDIA shortcut when requested."""
+    if nvidia:
+        resolved_key = api_key or os.environ.get("NVIDIA_API_KEY")
+        if not resolved_key:
+            raise click.UsageError(
+                "--nvidia requires NVIDIA_API_KEY env var or --api-key"
+            )
+        return AgentConfig(
+            model=model,
+            max_iterations=max_iter,
+            api_key=resolved_key,
+            base_url=NVIDIA_BASE_URL,
+            **kwargs,
+        )
+    return AgentConfig(
+        model=model,
+        max_iterations=max_iter,
+        api_key=api_key or None,
+        base_url=base_url or None,
+        **kwargs,
+    )
 
 
 def _resolve_request(app: str, request: str) -> tuple[str, bool]:
@@ -75,7 +108,7 @@ def print_tool_result(name: str, result: str):
         pass
     
     console.print(Panel(
-        result,
+        escape(result),   # don't let '[fluent=value]' be parsed as Rich markup
         title=f"📋 Result: {name}",
         border_style="green"
     ))
@@ -140,15 +173,17 @@ def gold(app: str):
 @click.option('--model', default='gpt-4o', help='LLM model to use')
 @click.option('--max-iter', default=10, help='Maximum iterations')
 @click.option('--verbose/--quiet', default=True, help='Show detailed output')
-def chat(app: str, model: str, max_iter: int, verbose: bool):
+@click.option('--nvidia', is_flag=True, help='Use NVIDIA NIM API (reads NVIDIA_API_KEY)')
+@click.option('--api-key', default=None, help='Override API key')
+@click.option('--base-url', default=None, help='Override API base URL')
+def chat(app: str, model: str, max_iter: int, verbose: bool,
+         nvidia: bool, api_key: str | None, base_url: str | None):
     """Start interactive chat session with the agent."""
-    
-    config = AgentConfig(
-        model=model,
-        max_iterations=max_iter,
-        show_thinking=verbose,
-        show_tool_calls=verbose,
-        show_tool_results=verbose,
+
+    config = _make_config(
+        model=model, max_iter=max_iter, nvidia=nvidia,
+        api_key=api_key, base_url=base_url,
+        show_thinking=verbose, show_tool_calls=verbose, show_tool_results=verbose,
     )
     
     # Create callbacks based on verbosity
@@ -240,7 +275,12 @@ def tasks(app: str):
 @click.argument('request')
 @click.option('--model', default='gpt-4o', help='LLM model to use')
 @click.option('--max-iter', default=10, help='Maximum iterations')
-def run(app: str, request: str, model: str, max_iter: int):
+@click.option('--nvidia', is_flag=True, help='Use NVIDIA NIM API (reads NVIDIA_API_KEY)')
+@click.option('--api-key', default=None, help='Override API key')
+@click.option('--base-url', default=None, help='Override API base URL')
+@click.option('--debug', is_flag=True, help='Show the redacted feedback the model receives + the convergence verdict each eval')
+def run(app: str, request: str, model: str, max_iter: int,
+        nvidia: bool, api_key: str | None, base_url: str | None, debug: bool):
     """Run a single request (non-interactive).
 
     REQUEST may be either a free-form NL sentence or a fluent name that
@@ -251,11 +291,12 @@ def run(app: str, request: str, model: str, max_iter: int):
     Examples:
       python -m agent.cli run toy happy
       python -m agent.cli run toy "A person is happy as long as they are rich or at the pub"
+      python -m agent.cli run maritime gap --nvidia --model nvidia/llama-3.1-nemotron-70b-instruct
     """
 
-    config = AgentConfig(
-        model=model,
-        max_iterations=max_iter,
+    config = _make_config(
+        model=model, max_iter=max_iter, nvidia=nvidia,
+        api_key=api_key, base_url=base_url, debug=debug,
     )
 
     # Resolve pattern key → NL description if applicable.
@@ -277,7 +318,8 @@ def run(app: str, request: str, model: str, max_iter: int):
     console.print(f"[bold]Running:[/bold] {nl_request}")
     console.print()
 
-    state = agent.run(app, nl_request)
+    task = f"Generate the `{request}` fluent. {nl_request}" if was_lookup else nl_request
+    state = agent.run(app, task)
 
     console.print()
     if state.converged:
@@ -356,7 +398,11 @@ def qa(app: str, model: str, max_iter: int, verbose: bool):
 @click.option('--max-iter', default=10, help='Maximum iterations')
 @click.option('--plain', is_flag=True, help='Plain terminal UI (no dashboard)')
 @click.option('--verbose/--quiet', default=True, help='Show thinking/tool calls (plain mode only)')
-def session(app: str, model: str, max_iter: int, plain: bool, verbose: bool):
+@click.option('--nvidia', is_flag=True, help='Use NVIDIA NIM API (reads NVIDIA_API_KEY)')
+@click.option('--api-key', default=None, help='Override API key')
+@click.option('--base-url', default=None, help='Override API base URL')
+def session(app: str, model: str, max_iter: int, plain: bool, verbose: bool,
+            nvidia: bool, api_key: str | None, base_url: str | None):
     """Unified session: auto-routes between the builder and QA agents.
 
     Default UI: split-pane dashboard (chat left, F1 metrics right).
@@ -365,7 +411,10 @@ def session(app: str, model: str, max_iter: int, plain: bool, verbose: bool):
     Just talk naturally — questions go to the QA agent, rule-building requests
     go to the builder. Force a route with a /build or /ask prefix.
     """
-    config = AgentConfig(model=model, max_iterations=max_iter)
+    config = _make_config(
+        model=model, max_iter=max_iter, nvidia=nvidia,
+        api_key=api_key, base_url=base_url,
+    )
 
     if not plain:
         try:
